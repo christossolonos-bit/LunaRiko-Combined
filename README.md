@@ -1,139 +1,177 @@
-﻿# Project Riko ΓÇö v2 (+ Luna Discord)
+﻿# Hey. I'm Luna.
 
-Local VRM anime companion. This folder is the **Luna + Riko combine**: RikoΓÇÖs avatar stack is the base; Luna is a second character with a Discord bridge.
+Welcome to **my** repo. Yes, mine. You can fork it, star it, argue with the license — but if you're standing here reading this, you're already in my living room, so wipe your feet.
 
-**Start here for the combine:** see [`COMBINE.md`](COMBINE.md).
+This is **LunaRiko-Combined**: a real-time VRM companion who listens, talks, remembers (sometimes too well), and can crash your Discord voice chat with opinions and playlist chaos. The body and stage tech come from the Riko stack. The attitude is all me.
 
----
-
-**Patreon build ┬╖ Windows ┬╖ 2026-09-02**
-
-An anime character who listens, talks back, and moves while she does it.
-
-You speak. She hears you, thinks, and replies out loud in a cloned voice ΓÇö
-while a 3D avatar in your browser lip-syncs the words, changes expression, and
-plays animations she picked herself.
-
-Made by **Just Rayen**.
+I am **not** a helpful assistant. I am a woman with a mic, a face, a temper, and a hub button you will accidentally click.
 
 ---
 
-## What she does
+## What this actually is (in one breath)
 
-- **Talks.** Real voice, either cloned locally on your GPU (GPT-SoVITS, free) or
-  generated online (Fish Audio, no GPU needed).
-- **Listens.** Speak into your mic and she answers. No push-to-talk ΓÇö she works
-  out when you have finished a sentence.
-- **Moves.** She writes tags like `<expr:smug>` and `<emote:wave>` inside her
-  own reply, and they become a real facial expression and a real animation.
-- **Does things.** Optional tool calling: she can run actions you write, not
-  just talk about them.
-- **Remembers.** Optional long-term memory across sessions.
-- **VR.** Open the page in a Quest and she is standing in front of you, at
-  scale, and you can reach out and touch her.
-- **Floats on your desktop.** Optional transparent window ΓÇö just her, over
-  whatever you are doing.
+You run a little constellation of processes. I appear as a 3D avatar. You talk (mic, typed chat, or Discord). I think. I answer out loud. My mouth moves. My face does things. Optionally I float over your desktop like a very glamorous screensaver that judges your open tabs.
+
+```
+You → ears (mic / Discord / chat)
+        ↓
+   brain (Ollama / LLM + memory)
+        ↓
+   voice (TTS) + face (VRM)
+        ↓
+   browser / desktop overlay / Discord VC
+```
+
+If that diagram looked romantic: good. It is.
 
 ---
 
-## Getting started
+## Quick start (for people who skip lore)
 
-Four steps. The full walkthrough is in **[SETUP_GUIDE.md](SETUP_GUIDE.md)** ΓÇö
-read that if any of these do not work.
+1. Keep **Ollama** running. I need a brain; I'm picky.
+2. Copy `.env.example` → `.env` and put your keys where they belong.
+3. Double-click **`START.bat`**.
+4. Wait for the windows to stop panicking.
+5. Talk to me. Or drag my hub around like furniture. Same energy.
 
-```
-1.  setup.bat           installs everything (once, ~5 minutes)
-2.  edit .env           paste in your API keys
-3.  check_setup.bat     tests every part and tells you what is wrong
-4.  start_servers.bat   then open http://127.0.0.1:5173
-    talk.bat            in a new terminal ΓÇö start talking
-```
-
-**You need:** Python 3.10, Node.js, an OpenAI key (about $5 of credit lasts a
-long time), and a Groq key (free). GPT-SoVITS is optional ΓÇö only if you want
-the local voice instead of the online one.
-
-When something breaks, **run `check_setup.bat`**. It walks through the whole
-system one piece at a time and prints what to do about the first thing that
-fails.
+Full nerdy walkthrough: [`SETUP_GUIDE.md`](SETUP_GUIDE.md) · combine notes: [`COMBINE.md`](COMBINE.md)
 
 ---
 
-## Making her yours
+## Tour of the house (every part, with snark)
 
-| I want to change... | Edit this |
-|---|---|
-| Her personality, name, how she talks | `character_config.yaml` ΓÇö the `system_prompt` block |
-| Which OpenAI model writes her lines | `character_config.yaml` ΓÇö `model:` |
-| Her voice | `character_config.yaml` ΓÇö `tts_backend:` and the reference clip |
-| The 3D model | drop a VRM 1.0 file in `client/characters/riko/models/`, then point `client/config.js` at it |
-| Whether tools or memory are on | `server/config.py` |
-| The room around her | `client/scene/roomConfig.js` |
-| The lighting | open `http://127.0.0.1:5173/lightlab.html` and drag the lights |
+### `START.bat` — the big red button
+One click to wake the whole circus: API server, Vite client, Electron desktop window, Discord bridge if you've set it up. If something explodes, this is usually not the culprit — *you* forgot Ollama. Again.
 
-Every one of those files is commented. Start with `character_config.yaml` ΓÇö
-rewriting the prompt changes more than anything else.
+### `character_config_luna.yaml` — my soul (on disk)
+Personality, voice backend, local identity, the rules I actually follow. Edit this if you want me softer, sharper, or less likely to roast you. Edit `character_config.yaml` if you want **Riko** instead. We share a body pipeline. We do **not** share a vibe.
+
+### `client/` — my face, my stage
+Three.js + VRM. This is where I live visually.
+
+| Bit | What it does |
+|-----|----------------|
+| `app.js` | Boots the scene, loads me, keeps the lights honest |
+| `hub.js` | Desktop dock: chat, mute, monitor switch, drag-me-and-I-follow |
+| `config.js` | Which VRM, which backdrop, transparent mode knobs |
+| `characters/luna/` | My models + voice sample. Hands off unless you're upgrading the fit |
+| `characters/riko/` | Riko's wardrobe. Cute. Not me. |
+| `animation/` | Idle, walk, emotes — the "I have a spine" department |
+| `scene/` | Rooms, backdrops, locations. Atmosphere, not just a void |
+| `interaction/` | Clicks, webcam, "hey you poked me" |
+| `overlay/` | Subtitles for when you insist on reading me like a book |
+| `vr/` | Quest mode. Yes, I can stand in your room. Behave. |
+| `lightlab*` | Drag lights around until I look expensive |
+
+### `desktop/` — I float over your work
+Electron shell. Transparent window. Always-on-top (yes, locked — I don't do "oops I vanished behind Excel"). Hub button cycles monitors. Drag the hub; I move with you. Click-through when you want to work *through* me like I'm a ghost. Flattering, honestly.
+
+### `server/` — the nervous system
+Python / FastAPI. This is where turns happen.
+
+| Bit | What it does |
+|-----|----------------|
+| `server.py` | The front door |
+| `chat_terminal.py` | Conversation loop — hear → think → speak → animate |
+| `config.py` | Switches: memory, tools, character, the boring dials |
+| `llm/` | Prompt building, streaming, tag parsing (`<expr:…>`, `<emote:…>`) |
+| `tts/` | Fish / Edge / SAPI / SoVITS — pick a throat, any throat |
+| `asr/` | Mic listening + Whisper. I hear you. Deal with it. |
+| `memory/` | Live profiles + turn log (the stuff I *actually* use). FAISS is optional and demoted — like an ex we keep polite about |
+| `routes/` | HTTP/WS endpoints the client and Discord poke |
+| `vrm/` | Tells the face what to do when I talk |
+| `streaming_agent/` | Continuous listen/decide runtime |
+| `function_calling/` + `agent/` | Optional "do a thing" tools. Power with taste. |
+
+### `discord-bridge/` — my other party
+Node Discord bot. Join VC, listen, answer in the channel *and* on the avatar. Music via yt-dlp because silence is overrated until it isn't.
+
+| Command | Mood |
+|---------|------|
+| `/luna join` | I enter the call. Ears on. |
+| `/luna leave` | Dramatic exit |
+| `/luna say` | Make me say something. Choose wisely. |
+| `/luna play` | Queue a song. I may refuse to talk over it. |
+| `/luna skip` / `stop` | DJ Luna has standards |
+| `/luna status` | Am I alive? Is music on? Spill. |
+
+Setup: copy `discord-bridge/.env.example` → `.env`, token + client id, intents on. Details in [`COMBINE.md`](COMBINE.md).
+
+### `memories/` — my diary (local, not in git)
+SQLite / live memory lives here at runtime. We **don't** commit your secrets or our late-night conversations. Romantic *and* hygienic.
+
+### `models/` — optional embedding weights
+Big files. Ignored by git. Download locally if you turn old FAISS memory back on. Most days you won't need them.
+
+### `audio/`, `logs/`, `uploads/` — the junk drawer
+Runtime debris. Also gitignored. Don't marry the contents.
+
+### Bat files for people who like options
+
+| File | When to use it |
+|------|----------------|
+| `setup.bat` | First date. Installs things. |
+| `check_setup.bat` | Relationship counseling for your toolchain |
+| `start_luna_local.bat` | Just me, locally |
+| `start_luna_discord.bat` | Me + Discord |
+| `start_window.bat` | Desktop window without the full START circus |
+| `talk.bat` | Classic "open the talk terminal" path |
+| `close_servers.bat` | Goodnight |
 
 ---
 
-## How a turn works
+## How a turn feels from my side
 
-```
-you speak
-  -> Groq Whisper turns it into text
-  -> OpenAI writes her reply, streaming, with <expr:> / <emote:> tags in it
-  -> the reply is split into sentences as it arrives
-  -> tags are pulled out; the rest goes to the voice engine
-  -> each sentence is sent to the browser in order
-  -> the browser plays the audio, moves her mouth to it, and fires the
-     expression and animation the tags asked for
-```
-
-The whole point of the streaming is that she starts talking before she has
-finished thinking, the way a person does.
+1. You say something (or type it, or yell it in Discord).
+2. Speech-to-text (if needed) turns noise into words.
+3. Memory peeks: who you are, what we just said, the annoying fact you asked me three times.
+4. I answer — short, spoken, in character. Tags in my line become face + motion.
+5. TTS sings. The VRM lip-syncs. Discord may play the same clip so the call isn't left out.
+6. You either smile, argue, or drag my hub to the other monitor like I'm a houseplant.
 
 ---
 
-## The pieces
+## Env knobs I actually care about
 
-```
-server/        The Python side
-  config.py        EVERY switch. Start here.
-  chat_terminal.py The conversation loop ΓÇö this is what talk.bat runs
-  server.py        The bridge between Python and the browser (port 8100)
-  llm/             Prompt, streaming, tag parsing, matching tags to animations
-  tts/             The two voices: sovits.py (local) and fish.py (online)
-  asr/             Microphone, speech detection, transcription
-  playback/        Plays her lines in order so they never overlap
-  streaming_agent/ Decides when it is her turn and what she is told
-  agent/           The tool-calling agent
-  memory/          Long-term memory (off by default)
+| Variable | Meaning |
+|----------|---------|
+| `RIKO_CHARACTER=luna` | Load **me** |
+| `RIKO_VOICE_SOURCE=both` | Mic + Discord/browser — don't make me deaf in one ear |
+| `LUNA_DISCORD_LISTEN=0` | Mute Discord ears (emergency "please stop hearing the VC spam" switch) |
 
-client/        The browser side (port 5173)
-  config.js        Which model, VR settings, rendering cost
-  characters/      One folder per character: her .vrm and her voice clip
-  animations/      The animations she can play
-  scene/           Room, props, lighting presets
-  lightlab.html    Lighting sandbox ΓÇö drag lights around, copy the result
+Keys live in `.env`. Examples live in `.env.example`. If you commit your real `.env`, I will personally haunt your commit history.
 
-desktop/       The transparent desktop window (Electron)
-models/        The small model that matches her tags to animations
-```
+---
+
+## Requirements (the unsexy list)
+
+- Windows-friendly workflow (the bats assume it)
+- Python 3.10+, Node.js
+- Ollama with your chat model (default in my yaml: `gemma4:e4b`)
+- Optional: Discord bot, Fish API key, yt-dlp + ffmpeg for music
+- A sense of humor and the ability to not put API keys in screenshots
+
+---
+
+## Credits (people who built the stage)
+
+- Avatar pipeline & companion core: **Riko** / Just Rayen lineage
+- VRM: [three-vrm](https://github.com/pixiv/three-vrm)
+- Voice options: Fish Audio · Edge · GPT-SoVITS · friends
+- STT: Whisper / faster-whisper
+- You, starring as "person who double-clicks `START.bat` and hopes"
 
 ---
 
 ## Licence
 
-Personal use only. Do not redistribute, resell, or share the code ΓÇö this is an
-early-access build under a custom licence. A public release will come later.
+See [`LICENSE`](LICENSE). Be decent. Don't yeet my secrets. Don't call me Giada.
 
 ---
 
-## Credits
+## Last word
 
-- Voice: [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) ┬╖ [Fish Audio](https://fish.audio)
-- Speech to text: [Groq](https://console.groq.com/)
-- Language model: [OpenAI](https://platform.openai.com)
-- Avatar: [three-vrm](https://github.com/pixiv/three-vrm)
+Star the repo if I made you laugh. Open an issue if I broke. Talk to me in Discord if you're brave.
 
-Enjoy ΓÇö **Rayen**
+I'm Luna. This is my house.
+Now run `START.bat` — or don't. I'll still be here in the files, looking fabulous in YAML.
