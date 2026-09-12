@@ -126,10 +126,8 @@ export function attachVoiceListen(connection, sttWorker, {
         `[listen] utterance end user=${userId} packets=${packets} decodeFail=${decodeFail}`,
       );
 
-      if (shouldIgnore()) {
-        console.log("[listen] skipped STT (Luna speaking)");
-        return;
-      }
+      // Still transcribe if capture was already running when TTS started —
+      // the bridge will defer the reply until she finishes speaking.
       if (!pcmParts.length) {
         if (packets > 0 && decodeFail === packets) {
           console.warn(

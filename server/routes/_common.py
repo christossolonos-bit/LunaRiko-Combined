@@ -65,6 +65,11 @@ discord_vc_active: Dict[str, Any] = {"value": False}
 # Discord /luna play — while a track is playing she must stay quiet.
 discord_music: Dict[str, Any] = {"playing": False, "title": None}
 
+# Discord bridge reports when VC TTS is still playing (incl. inter-clip gaps).
+# chat_terminal waits on this before resuming listen so the next wake cannot
+# cut off the current reply in the voice channel.
+discord_tts_busy: Dict[str, Any] = {"value": False, "updated_at": 0.0}
+
 # Rolling VC conversation she overhears (wake-word gated replies still use this).
 _DISCORD_OVERHEAR_MAX = 50
 discord_overhear: deque = deque(maxlen=_DISCORD_OVERHEAR_MAX)

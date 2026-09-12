@@ -28,8 +28,10 @@ from fastapi import APIRouter, File, Form, UploadFile
 
 from server.config import UPLOADS_DIR
 from server.routes._common import (
+    discord_audio_queue,
     discord_music,
     discord_overhear,
+    discord_tts_busy,
     discord_vc_active,
     latest_uploaded_image,
     pending_text,
@@ -39,6 +41,7 @@ from server.routes._common import (
 from server.routes.schemas import (
     DiscordMusicRequest,
     DiscordOverhearRequest,
+    DiscordTtsBusyRequest,
     DiscordVcRequest,
     LiveMemoryTurnRequest,
     ReplyAudioRequest,
@@ -172,6 +175,7 @@ async def post_discord_vc(req: DiscordVcRequest) -> dict:
         reply_audio_target["value"] = "both"
         discord_music["playing"] = False
         discord_music["title"] = None
+        discord_tts_busy["value"] = False
         discord_overhear.clear()
     logger.info("discord_vc active=%s (reply_audio=%s)", active, reply_audio_target["value"])
     return {"active": active, "reply_audio": reply_audio_target["value"]}
@@ -194,6 +198,24 @@ async def post_discord_music(req: DiscordMusicRequest) -> dict:
     discord_music["title"] = title if playing else None
     logger.info("discord_music playing=%s title=%r", playing, discord_music["title"])
     return {"playing": playing, "title": discord_music["title"]}
+
+
+@router.get("/discord_tts_busy")
+async def get_discord_tts_busy() -> dict:
+    return {
+        "busy": bool(discord_tts_busy.get("value")),
+        "updated_at": float(discord_tts_busy.get("updated_at") or 0),
+        "queued": len(discord_audio_queue),
+    }
+
+
+@router.post("/discord_tts_busy")
+async def post_discord_tts_busy(req: DiscordTtsBusyRequest) -> dict:
+    """Bridge sets busy=true while VC TTS (or settle gap) is active."""
+    import time as _time
+    discord_tts_busy["value"] = bool(req.busy)
+    discord_tts_busy["updated_at"] = _time.time()
+    return {"busy": bool(discord_tts_busy["value"])}
 
 
 @router.post("/discord_overhear")

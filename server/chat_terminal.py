@@ -87,6 +87,44 @@ def _discord_music() -> dict:
         return {"playing": False, "title": None}
 
 
+def _wait_discord_tts_idle(timeout_s: float = 90.0) -> None:
+    """Don't resume listen until Discord finished speaking this reply."""
+    import time
+
+    deadline = time.time() + max(1.0, timeout_s)
+    saw_busy = False
+    stable = 0
+    while time.time() < deadline:
+        try:
+            req = urllib.request.Request(
+                f"{BROWSER_INPUT_URL.rstrip('/')}/discord_tts_busy",
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            busy = bool(data.get("busy"))
+            queued = int(data.get("queued") or 0)
+        except Exception:
+            busy, queued = False, 0
+
+        if busy or queued > 0:
+            saw_busy = True
+            stable = 0
+            time.sleep(0.25)
+            continue
+
+        # Need a short quiet stretch so inter-clip gaps don't look "done".
+        stable += 1
+        if saw_busy and stable >= 3:
+            print("[term] Discord TTS idle — resuming listen")
+            return
+        if not saw_busy and stable >= 6:
+            # No Discord clips ever reported busy (bridge down / not in VC).
+            return
+        time.sleep(0.25)
+    print("[term] Discord TTS wait timed out — resuming listen anyway")
+
+
 def _fetch_discord_overhear(limit: int = 40) -> str:
     """Recent VC lines she overheard (wake-gated — context only, not a prompt to reply)."""
     try:
@@ -512,6 +550,11 @@ def main() -> None:
             finally:
                 # Reset routing after each turn; next Discord wake sets discord again.
                 _set_reply_audio("both")
+
+            # Discord VC: wait until the bridge finished playing every clip.
+            # Otherwise listen resumes mid-reply and the next wake cuts her off.
+            if from_discord_bridge or reply_audio == "discord":
+                _wait_discord_tts_idle()
 
             # 4) Resume listening. Always called, even if the turn failed.
             agent.end_response()

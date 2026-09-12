@@ -60,6 +60,8 @@ const WAKE_WORDS = String(process.env.LUNA_WAKE_WORDS || "luna,hey luna,okay lun
   .filter(Boolean)
   .sort((a, b) => b.length - a.length);
 const WAKE_FOLLOWUP_MS = Number(process.env.LUNA_WAKE_FOLLOWUP_MS || 45000);
+/** Keep ears closed this long after each TTS clip so inter-sentence gaps don't barge in. */
+const TTS_SETTLE_MS = Number(process.env.LUNA_TTS_SETTLE_MS || 1500);
 
 if (!TOKEN || !CLIENT_ID) {
   console.error("[luna-discord] Set DISCORD_BOT_TOKEN and DISCORD_CLIENT_ID in discord-bridge/.env");
@@ -176,6 +178,12 @@ let lunaSpeaking = false;
 let musicPlaying = false;
 const ttsQueue = [];
 let ttsPumpRunning = false;
+/** Hold listen closed across gaps between streamed TTS sentences. */
+let ttsHoldUntil = 0;
+let ttsSettleTimer = null;
+let lastReportedTtsBusy = null;
+/** One deferred wake while she talks — fired after TTS goes idle. */
+let deferredReply = null;
 let lastWakeAt = 0;
 let lastWakeUserId = null;
 
@@ -284,15 +292,67 @@ music.onPlaying = (track) => {
   if (track) {
     // Don't let queued Luna TTS talk over the song.
     ttsQueue.length = 0;
+    deferredReply = null;
     console.log(`[luna-discord] music on — Luna stays quiet: ${track.title}`);
   } else {
     console.log("[luna-discord] music off — Luna can talk again");
   }
 };
 
+function isTtsBusy() {
+  return (
+    lunaSpeaking ||
+    ttsPumpRunning ||
+    ttsQueue.length > 0 ||
+    Date.now() < ttsHoldUntil
+  );
+}
+
 function shouldIgnoreListen() {
-  // Mute capture while she speaks (echo). Music: still overhear; reply blocked elsewhere.
-  return lunaSpeaking || ttsPumpRunning;
+  // Mute capture while she speaks (echo) and across short gaps between clips.
+  return isTtsBusy();
+}
+
+function bumpTtsHold(ms = TTS_SETTLE_MS) {
+  const until = Date.now() + Math.max(0, ms);
+  if (until > ttsHoldUntil) ttsHoldUntil = until;
+  syncTtsBusy().catch(() => {});
+  if (ttsSettleTimer) clearTimeout(ttsSettleTimer);
+  const wait = Math.max(0, ttsHoldUntil - Date.now()) + 50;
+  ttsSettleTimer = setTimeout(() => {
+    ttsSettleTimer = null;
+    syncTtsBusy()
+      .then(() => flushDeferredReply())
+      .catch(() => {});
+  }, wait);
+}
+
+async function syncTtsBusy() {
+  const busy = isTtsBusy();
+  if (busy === lastReportedTtsBusy) return;
+  lastReportedTtsBusy = busy;
+  try {
+    const res = await fetch(`${RIKO_HTTP}/discord_tts_busy`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ busy }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  } catch (e) {
+    console.warn("[luna-discord] discord_tts_busy notify failed:", e.message);
+  }
+}
+
+async function flushDeferredReply() {
+  if (!deferredReply || isTtsBusy() || musicPlaying) return;
+  const labeled = deferredReply;
+  deferredReply = null;
+  try {
+    const result = await sendToRiko(labeled);
+    console.log(`[luna-discord] deferred voice→riko v${result.version}: ${labeled}`);
+  } catch (e) {
+    console.warn("[luna-discord] deferred voice→riko failed:", e.message);
+  }
 }
 
 async function setDiscordMusic(playing, title = null) {
@@ -308,7 +368,7 @@ async function setDiscordMusic(playing, title = null) {
   }
 }
 
-async function playClip(filePath) {
+async function playClip(filePath, durationHintSec = null) {
   if (!filePath || !existsSync(filePath)) {
     console.warn("[luna-discord] audio file missing:", filePath);
     return;
@@ -318,7 +378,13 @@ async function playClip(filePath) {
     console.log("[luna-discord] skip TTS clip — music is playing");
     return;
   }
+  const holdMs =
+    (Number.isFinite(durationHintSec) && durationHintSec > 0
+      ? durationHintSec * 1000
+      : 3000) + TTS_SETTLE_MS;
+  bumpTtsHold(holdMs);
   lunaSpeaking = true;
+  await syncTtsBusy();
   try {
     const resource = createAudioResource(filePath, { inlineVolume: true });
     resource.volume?.setVolume(1.0);
@@ -327,12 +393,15 @@ async function playClip(filePath) {
     await entersState(player, AudioPlayerStatus.Idle, 180_000).catch(() => null);
   } finally {
     lunaSpeaking = false;
+    bumpTtsHold(TTS_SETTLE_MS);
+    await syncTtsBusy();
   }
 }
 
 async function pumpTtsQueue() {
   if (ttsPumpRunning) return;
   ttsPumpRunning = true;
+  await syncTtsBusy();
   try {
     while (ttsQueue.length) {
       if (musicPlaying) {
@@ -348,11 +417,14 @@ async function pumpTtsQueue() {
       }
       console.log(`[luna-discord] TTS v${snap.version}: ${snap.audio_path} (left=${ttsQueue.length})`);
       const file = await downloadIfRemote(snap.audio_path);
-      await playClip(file);
+      const dur = Number(snap.duration);
+      await playClip(file, Number.isFinite(dur) ? dur : null);
       if (file && file.includes("luna-discord-audio")) unlink(file).catch(() => {});
     }
   } finally {
     ttsPumpRunning = false;
+    bumpTtsHold(TTS_SETTLE_MS);
+    await syncTtsBusy();
   }
 }
 
@@ -367,6 +439,11 @@ async function pollDiscordAudio() {
         // Server pops FIFO — every non-null path is the next sentence, in order.
         if (snap.audio_path) {
           lastAudioVersion = snap.version;
+          const dur = Number(snap.duration);
+          // Hold ears closed as soon as a clip is known — before download/play.
+          bumpTtsHold(
+            (Number.isFinite(dur) && dur > 0 ? dur * 1000 : 4000) + TTS_SETTLE_MS,
+          );
           ttsQueue.push(snap);
           pumpTtsQueue().catch((e) => console.warn("[luna-discord] tts pump:", e.message));
           // Drain any backlog immediately (don't wait 200ms between pops).
@@ -436,6 +513,12 @@ async function attachListen(connection) {
       try {
         const spoken = stripWakeWord(raw);
         const labeled = await labelDiscordUtterance(meta.userId, spoken, guild);
+        // Don't start a new reply while VC TTS is still playing — that cuts her off.
+        if (isTtsBusy()) {
+          deferredReply = labeled;
+          console.log(`[luna-discord] defer wake until TTS idle: ${labeled}`);
+          return;
+        }
         const result = await sendToRiko(labeled);
         console.log(`[luna-discord] voice→riko v${result.version}: ${labeled}`);
       } catch (e) {

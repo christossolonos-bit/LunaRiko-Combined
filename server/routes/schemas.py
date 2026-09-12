@@ -73,6 +73,11 @@ class DiscordMusicRequest(BaseModel):
     title: Optional[str] = None
 
 
+class DiscordTtsBusyRequest(BaseModel):
+    """Discord bridge: VC TTS playing (or settle gap between sentences)."""
+    busy: bool = False
+
+
 class DiscordOverhearRequest(BaseModel):
     text: str
     user_id: Optional[str] = None
