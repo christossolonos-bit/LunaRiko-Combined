@@ -1,0 +1,558 @@
+/* =================================
+   CLEANED & CONSOLIDATED STYLES.CSS
+   ================================= */
+
+/* ========== BASE ========== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+canvas { display: block; }
+
+/* ========== TOGGLE UI BUTTON (upper right) ========== */
+.toggle-button {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+  transition: transform 0.18s ease, background 0.18s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  pointer-events: auto !important;
+}
+
+.toggle-button:hover { background: rgba(255,255,255,0.2); transform: scale(1.05); }
+.toggle-button:active { transform: scale(0.95); }
+
+.toggle-subtitles { top: 60px; }
+.toggle-subtitles.off { opacity: 0.4; }
+
+/* ========== HIDE UI STATE ========== */
+.ui-hidden .ui-container { opacity: 0; transform: translateX(-50%) translateY(20px); pointer-events: none !important; visibility: hidden; }
+.ui-hidden .ui-container * { pointer-events: none !important; }
+
+/* ========== TRANSPARENT MODE (inside the Electron desktop shell) ========== */
+body.transparent { background: transparent; }
+body.transparent .ui-container,
+body.transparent .toggle-button { display: none; }
+/* Keep a thin drag strip only when hub is not used for moving */
+body.transparent::before {
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 8px;
+  z-index: 1500;
+  -webkit-app-region: drag;
+}
+
+/* ========== DESKTOP HUB (Fluffy-style dock) ========== */
+.hub-dock {
+  display: none;
+  position: fixed;
+  left: 50%;
+  bottom: 48px;
+  z-index: 3000;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px 6px 6px;
+  border-radius: 999px;
+  background: rgba(18, 20, 28, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(12px);
+  transform: translateX(-50%);
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+body.transparent .hub-dock[hidden] { display: none !important; }
+body.transparent .hub-dock:not([hidden]) { display: flex; }
+
+.hub-handle {
+  width: 22px;
+  height: 32px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: grab;
+  padding: 0;
+  font-size: 12px;
+  letter-spacing: -2px;
+}
+.hub-handle:hover { color: rgba(255,255,255,0.8); background: rgba(255,255,255,0.06); }
+.hub-dock.dragging .hub-handle { cursor: grabbing; }
+
+.hub-actions { display: flex; align-items: center; gap: 2px; }
+
+.hub-btn {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.hub-btn:hover { background: rgba(255, 255, 255, 0.12); }
+.hub-btn[aria-pressed="true"],
+.hub-btn-active { background: rgba(99, 179, 237, 0.35); }
+.hub-btn-danger:hover { background: rgba(229, 62, 62, 0.75); }
+
+#hub-monitor {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+#hub-monitor.hidden { display: none; }
+#hub-monitor-label { pointer-events: none; }
+
+.hub-chat-panel {
+  position: fixed;
+  left: 50%;
+  bottom: 100px;
+  z-index: 3001;
+  width: min(380px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  border-radius: 16px;
+  background: rgba(18, 20, 28, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(14px);
+  color: #f5f5f7;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+.hub-chat-panel.hidden { display: none; }
+.hub-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.hub-chat-close {
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.7);
+  cursor: pointer;
+  font-size: 12px;
+}
+.hub-chat-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px 12px;
+}
+.hub-chat-input-row input {
+  flex: 1;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 10px;
+  background: rgba(0,0,0,0.35);
+  color: #fff;
+  padding: 8px 10px;
+  font-size: 13px;
+  outline: none;
+}
+.hub-chat-input-row button {
+  border: none;
+  border-radius: 10px;
+  background: rgba(99, 179, 237, 0.55);
+  color: #fff;
+  padding: 0 14px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* ========== VRM CLICK EFFECTS ========== */
+.vrm-click-effect {
+  position: fixed;
+  width: 60px;
+  height: 60px;
+  border: 2px solid rgba(255,255,255,0.8);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 500;
+  opacity: 0;
+  transform: translate(-50%,-50%) scale(0.3);
+  transition: all 0.4s cubic-bezier(0.25,0.46,0.45,0.94);
+}
+.vrm-click-effect.animate { opacity: 1; transform: translate(-50%,-50%) scale(1.2); }
+.vrm-click-effect.fade-out { opacity: 0; transform: translate(-50%,-50%) scale(1.5); }
+
+.vrm-click-effect-pulse {
+  position: fixed;
+  width: 40px;
+  height: 40px;
+  background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0) 70%);
+  border: 1px solid rgba(255,255,255,0.6);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 500;
+  opacity: 0;
+  transform: translate(-50%,-50%) scale(0.5);
+  animation: vrmClickPulse 0.5s cubic-bezier(0.25,0.46,0.45,0.94) forwards;
+}
+@keyframes vrmClickPulse { 0%{opacity:0;transform:translate(-50%,-50%)scale(0.5)}50%{opacity:1;transform:translate(-50%,-50%)scale(1.1)}100%{opacity:0;transform:translate(-50%,-50%)scale(1.4)} }
+
+/* ========== SUBTITLE ========== */
+#subtitle-container {
+  position: fixed;   /* viewport-anchored, like every other overlay here */
+  bottom: 8%;
+  left: 15%;
+  right: 15%;
+  max-width: 95%;
+  transform: translateY(5%);
+  text-align: center;
+  font-size: 30px;
+  color: whitesmoke;
+  background: rgba(0,0,0,0);
+  -webkit-text-stroke: 2px rgba(197,40,34,0.651);
+  pointer-events: none;
+  font-family: 'Coiny Regular', sans-serif;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+}
+#subtitle-container.visible { opacity: 1; }
+
+/* Phone / narrow screens. 30px type inside 15% margins leaves ~9
+   characters per line on a ~400px-wide screen, so one sentence wraps into a
+   column tall enough to reach the top of the screen — which is what "subtitles
+   at the top" was. Narrower margins + smaller type keeps it 2-3 lines. Desktop
+   is deliberately untouched. */
+@media (max-width: 700px) {
+  #subtitle-container {
+    left: 4%;
+    right: 4%;
+    bottom: 12%;
+    font-size: 20px;
+    -webkit-text-stroke-width: 1.5px;
+  }
+}
+
+/* ========== UI CONTAINER ========== */
+.ui-container {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  padding: 0;
+  max-width: 600px;
+  width: 90vw;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s ease;
+  pointer-events: auto !important;
+  z-index: 999;
+}
+
+/* ========== IMAGE PREVIEW ========== */
+.image-preview-section {
+  width: 100%;
+  display: none;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(255,255,255,0.1);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 24px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+  z-index: 1001;
+  position: relative;
+}
+.image-preview-section.visible { display:flex; }
+
+.image-thumbnail { width:60px; height:60px; object-fit:cover; border-radius:8px; border:1px solid rgba(255,255,255,0.2); z-index:1002; }
+.image-info { flex:1; color: rgba(255,255,255,0.8); font-size:0.9rem; z-index:1003; }
+.remove-image-btn {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: white;
+  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer; font-size:14px; transition: all 0.18s; z-index:1004; pointer-events:auto !important;
+}
+.remove-image-btn:hover { background: rgba(255,100,100,0.3); border-color: rgba(255,100,100,0.5); }
+
+/* ========== INPUT SECTION (single-line by default) ========== */
+.input-section {
+  width: 100%;
+  display: flex;
+  align-items: center;    /* center vertically in single-line mode */
+  gap: 0;
+  z-index: 1000;
+  position: relative;
+  min-height: 50px;      /* single line baseline */
+  height: auto;
+  background: rgba(255,255,255,0.08);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 25px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+  transition: padding 150ms cubic-bezier(0.2,0,0.2,1), border-radius 150ms cubic-bezier(0.2,0,0.2,1), background 150ms cubic-bezier(0.2,0,0.2,1);
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+/* multiline state: grid that places text on top row and buttons on bottom row */
+.input-section.multiline {
+  display: grid;
+  grid-template-columns: auto 1fr auto;  /* left | text | right */
+  grid-template-rows: auto auto;          /* text row | buttons row */
+  grid-template-areas:
+    "text text text"
+    "left . right";
+  align-items: end;                       /* bottom align buttons row */
+  padding: 8px 12px;                      /* stable padding to avoid reflow delta */
+}
+
+/* text area wrapper (middle area) */
+.text-input-wrapper { flex: 1; display:flex; align-items:center; order:1; grid-area: text; }
+
+/* left and right button containers */
+.left-buttons { display:flex; gap:4px; align-items:center; padding: 0 8px; transition: transform 180ms cubic-bezier(0.2,0,0.2,1); will-change: transform; }
+.input-section.multiline .left-buttons { grid-area: left; align-self: end; padding: 8px 12px; transform: translateY(0); }
+
+.right-buttons { display:flex; gap:4px; align-items:center; padding: 0 8px; order:2; transition: transform 180ms cubic-bezier(0.2,0,0.2,1); will-change: transform; }
+.input-section.multiline .right-buttons { grid-area: right; align-self:end; padding: 8px 12px; margin-left:0; transform: translateY(0); }
+
+/* ========== TEXTAREA / INPUT ========== */
+/* Keep padding and line-height constant between single and multiline to avoid clipping */
+#text-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: white;
+  font-size: 1rem;
+  font-family: inherit;
+  line-height: 1.2;                   /* explicit, stable */
+  padding: 8px 12px;                  /* kept constant across modes */
+  border-radius: 0;
+  outline: none;
+  resize: none;
+  min-height: 22px;                   /* safety floor */
+  max-height: 120px;
+  overflow-y: hidden;                 /* toggled by JS when needed */
+  overflow-x: hidden;                 /* prevent horizontal scroll */
+  overflow-wrap: break-word;          /* allow safe breaking of long runs */
+  word-break: normal;
+  white-space: pre-wrap;              /* preserve newlines but allow wrapping */
+  transition: height 150ms cubic-bezier(0.2,0,0.2,1);
+  pointer-events: auto !important;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+#text-input::placeholder { color: rgba(255,255,255,0.6); }
+
+/* scrollbar styling */
+#text-input::-webkit-scrollbar { width: 6px; }
+#text-input::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 3px; }
+#text-input::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+#text-input::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
+
+/* ========== BUTTONS ========== */
+button, .plus-upload {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 12px;
+  transition: transform 0.12s ease, background 0.12s ease;
+  display:flex; align-items:center; justify-content:center;
+  min-width: 32px; min-height: 32px; pointer-events: auto !important;
+}
+
+button:hover, .plus-upload:hover { background: rgba(255,255,255,0.15); transform: scale(1.05); }
+button:active, .plus-upload:active { transform: scale(0.95); }
+
+.send-button {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.15);
+}
+.send-button:hover { background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.3); }
+.send-button:disabled { opacity: 0.4; cursor: not-allowed; }
+.send-button:disabled:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.15); transform:none; }
+
+/* plus upload label behaves like the other buttons but slightly tighter */
+.plus-upload {
+  padding: 4px;
+  min-width: auto;
+  min-height: auto;
+  border-radius: 12px;
+  margin-right: 2px;
+}
+.input-section.multiline .plus-upload { margin-right: 0; }
+
+/* hidden file input */
+#image-input { pointer-events: none; }
+
+/* ========== ICONS ========== */
+.icon { width: 16px; height: 16px; filter: brightness(0) saturate(100%) invert(100%) opacity(0.8); transition: filter 0.12s ease; pointer-events:none; }
+button:hover .icon, .plus-upload:hover .icon { filter: brightness(0) saturate(100%) invert(100%) opacity(1); }
+
+/* ========== COOL-ONS ========== */
+.vrm-click-cooldown { pointer-events: none !important; opacity: 0.6; transition: opacity 0.1s ease; }
+.vrm-click-active { opacity: 1; }
+
+/* ========== MOBILE ========== */
+@media (max-width: 768px) {
+  .ui-container { width: 95vw; bottom: 20px; }
+  #text-input { font-size: 16px; padding: 12px 16px; transition-duration: 160ms; }
+  .left-buttons, .right-buttons { gap: 6px; padding: 6px 10px; }
+  button, .plus-upload { min-width: 36px; min-height: 36px; padding: 8px; }
+  .icon { width: 16px; height: 16px; }
+}
+
+/* ========== ENHANCED FONT SMOOTHING ========== */
+.input-section, #text-input {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ========== IMPROVED INPUT SECTION ========== */
+.input-section {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  z-index: 1000;
+  position: relative;
+  min-height: 50px;
+  height: auto;
+  background: rgba(255,255,255,0.08);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 25px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+  padding-left: 8px;
+  padding-right: 8px;
+  /* Smooth transition only for visual properties */
+  transition: border-radius 150ms ease, background 150ms ease;
+}
+
+/* Multiline state */
+.input-section.multiline {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto auto;
+  grid-template-areas:
+    "text text text"
+    "left . right";
+  align-items: end;
+  padding: 8px 12px;
+  border-radius: 20px; /* Slightly less rounded when multiline */
+}
+
+/* ========== TEXTAREA WITH PROPER NO-WRAP HANDLING ========== */
+#text-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: white;
+  font-size: 1rem;
+  font-family: inherit;
+  line-height: 1.2;
+  padding: 8px 12px;
+  border-radius: 0;
+  outline: none;
+  resize: none;
+  min-height: 22px;
+  max-height: 120px;
+  overflow-y: hidden;
+  overflow-x: hidden; /* Always hidden - no horizontal scrolling */
+  overflow-wrap: break-word;
+  word-break: normal;
+  /* Default to nowrap - JS will change this */
+  white-space: nowrap;
+  /* Smooth height transition */
+  transition: height 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  pointer-events: auto !important;
+  box-sizing: border-box;
+  max-width: 100%;
+  /* Performance optimizations */
+  will-change: height;
+  contain: layout style;
+}
+
+/* When in multiline mode, allow wrapping */
+.input-section.multiline #text-input {
+  white-space: pre-wrap;
+  overflow-x: hidden;
+}
+
+/* ========== BUTTON CONTAINERS ========== */
+.left-buttons { 
+  display: flex; 
+  gap: 4px; 
+  align-items: center; 
+  padding: 0 8px;
+  /* Smooth transition for position changes */
+  transition: padding 150ms ease;
+}
+.input-section.multiline .left-buttons { 
+  grid-area: left; 
+  align-self: end; 
+  padding: 8px 12px;
+}
+
+.right-buttons { 
+  display: flex; 
+  gap: 4px; 
+  align-items: center; 
+  padding: 0 8px; 
+  order: 2;
+  transition: padding 150ms ease;
+}
+.input-section.multiline .right-buttons { 
+  grid-area: right; 
+  align-self: end; 
+  padding: 8px 12px; 
+  margin-left: 0;
+}
+
+/* ========== VISUAL FEEDBACK FOR TRANSITIONS ========== */
+.input-section {
+  /* Add a subtle scale effect during transition */
+  transform-origin: bottom center;
+}
+
+.input-section.multiline {
+  /* Slightly different background to indicate mode change */
+  background: rgba(255,255,255,0.1);
+}

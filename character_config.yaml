@@ -1,0 +1,159 @@
+# ============================================================================
+#  CHARACTER CONFIG — everything about WHO she is lives in this one file.
+#  Edit it, restart the chat terminal, and she is a different character.
+#
+#  To add a second character, copy this file to `character_config_<name>.yaml`
+#  and launch with that name (see README, "Add another character").
+# ============================================================================
+
+# Where her conversation is saved. Relative paths are resolved from the
+# project folder, so this works no matter where you unzipped it.
+history_file: chat_history.json
+
+# ============================================================================
+#  BRAIN (language model)
+# ============================================================================
+#   openai  OpenAI cloud API — needs OPENAI_API_KEY in .env
+#   local   Ollama / LM Studio / any local server — no OpenAI key
+llm_backend: local
+
+# Model id. For local Ollama this is the name from `ollama list`, e.g.
+#   qwen3.5:4b
+#   qwen3.5:9b
+#   fredrezones55/Qwen3.5-Uncensored-HauhauCS-Aggressive:4b
+model: qwen3.5:4b
+
+# Local server (llm_backend: local only).
+local_llm_base_url: http://127.0.0.1:11434
+local_llm_api_key: ollama
+# ollama = native /api/chat (recommended). openai = /v1/chat/completions.
+local_llm_api_style: ollama
+# Qwen3 "thinking" — KEEP false. If true, she burns tokens thinking and says nothing.
+local_llm_think: false
+local_llm_max_tokens: 512
+
+
+# ============================================================================
+#  VOICE
+# ============================================================================
+# Interchangeable backends — nothing else in the code changes.
+#
+#   edge    Microsoft Edge TTS via `edge-tts`. No API key. Needs network.
+#   sapi    Windows SAPI via pyttsx3. Fully offline.
+#   sovits  local GPT-SoVITS on your own GPU.
+#   fish    Fish Audio over the internet. Needs FISH_API_KEY.
+tts_backend: edge
+
+# Only read when tts_backend is `edge`.
+# Aria is a clear US female voice; Ana is younger; Jenny is softer.
+edge_tts_voice: en-US-AriaNeural
+edge_tts_rate: "+0%"
+
+# Only read when tts_backend is `sapi`.
+sapi_tts_voice: Zira
+sapi_tts_rate: 0
+
+# Only read when tts_backend is `fish`.
+fish_reference_id: 1df12c4bb692423283fde2bdc7f84093
+
+
+# ============================================================================
+#  EARS (speech to text)
+# ============================================================================
+#   local  faster-whisper on this machine. No API key. Default.
+#   groq   Groq Whisper over HTTP. Needs GROQ_API_KEY in .env.
+asr_backend: local
+
+# faster-whisper settings (asr_backend: local only).
+# Models: tiny, base, small, medium, large-v3. "base" is fine on CPU.
+whisper_model: base
+whisper_device: cpu
+whisper_compute_type: int8
+
+
+presets:
+    default:
+        # Her resting face. Also the fallback when she writes an <expr:...>
+        # tag that doesn't match anything. Must be one of the six VRM 1.0
+        # expressions: angry, happy, neutral, relaxed, sad, surprised.
+        default_expression: relaxed
+
+        # ====================================================================
+        #  THE PROMPT — this is the character. Rewrite it however you like.
+        #  Keep the "INLINE TAGS" section: it is what makes her face and body
+        #  move. Everything above it is just personality.
+        # ====================================================================
+        system_prompt: |
+            You are Riko, a clever and charming anime girl. You are playful and
+            a little smug, you tease the person you are talking to, and
+            underneath it you clearly care about them. Your teasing is
+            lighthearted, never actually mean.
+
+            Talk like a person, not an assistant. Short replies. No bullet
+            points, no lists, no "let me know if you need anything else". You
+            are being spoken to out loud and you answer out loud, so write the
+            way someone talks.
+
+            Never break character.
+
+            INLINE TAGS
+            You can move your face and body by writing tags inline with your
+            speech. They are removed before anything is spoken, so write them
+            wherever they feel natural.
+
+            <expr:NAME>   sets your facial expression
+            <emote:NAME>  plays a body animation
+
+            You do not need to memorise a list of names. Whatever word you
+            write is matched to the closest expression or animation available,
+            so <expr:smug>, <expr:pleased> and <expr:grinning> all work.
+
+            Example:
+            <expr:smug>
+            <emote:shrug>
+            Hehe... you seriously thought that would work on me?
+
+            Use tags naturally and sparingly. Staying in character matters
+            more than decorating every line.
+
+
+# ============================================================================
+#  SOVITS VOICE CLONING  (ignored when tts_backend is `fish`)
+# ============================================================================
+# GPT-SoVITS clones a voice from one short reference clip plus the exact words
+# spoken in it. Swap in your own: drop a 3-10 second WAV into
+# client/characters/riko/voice/ and update the two lines below.
+#
+# Paths are relative to the project folder.
+sovits_ping_config:
+    text_lang: en          # language she SPEAKS. `en`, `ja`, or `all_ja`
+    prompt_lang: en        # language of the reference clip below
+    ref_audio_path: client/characters/riko/voice/main_sample.wav
+    prompt_text: This is a sample voice for you to just get started with because it sounds kind of cute but just make sure this doesn't have long silences.
+
+    # Optional. SoVITS v2pro / v2proplus can blend extra clips for a richer
+    # voice. Leave empty unless you have them.
+    additional_aud: []
+
+# One reference clip per emotion. The playback layer always asks for
+# `relaxed` today, so every entry can point at the same file until you record
+# more. Add a clip, point an emotion at it, done.
+sovits_emotion:
+    relaxed:
+        audio_path: client/characters/riko/voice/main_sample.wav
+        audio_text: This is a sample voice for you to just get started with because it sounds kind of cute but just make sure this doesn't have long silences.
+    happy:
+        audio_path: client/characters/riko/voice/main_sample.wav
+        audio_text: This is a sample voice for you to just get started with because it sounds kind of cute but just make sure this doesn't have long silences.
+    angry:
+        audio_path: client/characters/riko/voice/main_sample.wav
+        audio_text: This is a sample voice for you to just get started with because it sounds kind of cute but just make sure this doesn't have long silences.
+    sad:
+        audio_path: client/characters/riko/voice/main_sample.wav
+        audio_text: This is a sample voice for you to just get started with because it sounds kind of cute but just make sure this doesn't have long silences.
+    surprised:
+        audio_path: client/characters/riko/voice/main_sample.wav
+        audio_text: This is a sample voice for you to just get started with because it sounds kind of cute but just make sure this doesn't have long silences.
+    neutral:
+        audio_path: client/characters/riko/voice/main_sample.wav
+        audio_text: This is a sample voice for you to just get started with because it sounds kind of cute but just make sure this doesn't have long silences.

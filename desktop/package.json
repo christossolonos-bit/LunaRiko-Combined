@@ -1,0 +1,12 @@
+{
+  "name": "riko-desktop-shell",
+  "version": "1.0.0",
+  "description": "Transparent, frameless window that hosts the avatar page over your desktop.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

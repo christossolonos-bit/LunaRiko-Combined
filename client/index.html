@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>VRM Audio Lip Sync</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="./styles.css" />
+  <style>
+    /* Hide flat-screen UI when in VR */
+    body.vr-active .ui-container,
+    body.vr-active .toggle-button { display: none; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+      "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.4.1/lib/three-vrm.module.js",
+      "@pixiv/three-vrm-animation": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm-animation@3.4.1/lib/three-vrm-animation.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+<!-- SUBTITLE CONTAINER, UNCOMMENT THIS AND SUBTITLES IN APP JS FOR IN BROWSER MODE-->
+<!-- IF OBS STREAMING, COMMENT OUT THIS ONE AND THE ONE IN APP JS FOR SEPERATE OVERLAYS -->
+
+<div id="subtitle-container"></div>
+
+  <!-- <div id="status">Initializing...</div> -->
+
+  <!-- VRM canvas will be injected by app.js -->
+
+  <!-- Hide/Show UI Button -->
+  <button id="toggle-ui-button" class="toggle-button">
+    <svg class="icon" viewBox="0 0 24 24">
+      <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+    </svg>
+  </button>
+
+  <!-- Toggle Subtitles Button -->
+  <button id="toggle-subtitles-button" class="toggle-button toggle-subtitles">
+    <svg class="icon" viewBox="0 0 24 24">
+      <rect x="2" y="4" width="20" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+      <text x="6" y="15.5" font-size="9" font-weight="bold" fill="currentColor" stroke="none">CC</text>
+    </svg>
+  </button>
+
+  <div class="ui-container">
+    <!-- Image Preview Section (Hidden by default) -->
+    <div class="image-preview-section" id="image-preview-section">
+      <img id="image-thumbnail" class="image-thumbnail" alt="Image preview" />
+      <div class="image-info">
+        <div id="image-name">Image selected</div>
+      </div>
+      <button class="remove-image-btn" id="remove-image-btn">×</button>
+    </div>
+
+    <!-- Input Section with dynamic layout -->
+    <div class="input-section" id="input-section">
+      <!-- Left side buttons (when multiline) -->
+      <div class="left-buttons" id="left-buttons">
+        <label for="image-input" class="plus-upload">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+        </label>
+      </div>
+
+      <!-- Text input area -->
+      <div class="text-input-wrapper">
+        <textarea
+          id="text-input"
+          placeholder="Type a message..."
+          rows="1"
+        ></textarea>
+      </div>
+
+      <!-- Right side buttons -->
+      <div class="right-buttons" id="right-buttons">
+        <button id="video-button" title="Camera — LLaVA sees you while this is on">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="m22 8-6 4 6 4V8Z"/>
+            <rect x="2" y="6" width="14" height="12" rx="2"/>
+          </svg>
+        </button>
+
+        <button id="mic-button" title="Mute microphone">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+            <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+            <path d="M12 18v4"/>
+            <path d="M8 22h8"/>
+          </svg>
+        </button>
+
+        <button id="send-button" class="send-button" disabled>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="m22 2-7 20-4-9-9-4Z"/>
+            <path d="M22 2 11 13"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <input type="file" id="image-input" accept="image/*" hidden />
+  </div>
+
+  <!-- Desktop hub (Electron transparent mode — Fluffy-style dock) -->
+  <nav id="hub-dock" class="hub-dock" aria-label="Luna controls" hidden>
+    <button id="hub-handle" class="hub-handle" type="button" title="Drag hub" aria-label="Drag hub">⋮⋮</button>
+    <div class="hub-actions">
+      <button id="hub-chat" type="button" class="hub-btn" title="Chat" aria-pressed="false">💬</button>
+      <button id="hub-mic" type="button" class="hub-btn" title="Mute mic" aria-pressed="false">🎤</button>
+      <button id="hub-monitor" type="button" class="hub-btn" title="Switch monitor" aria-label="Switch monitor">
+        <span id="hub-monitor-label">1</span>
+      </button>
+      <button id="hub-pin" type="button" class="hub-btn hub-btn-active" title="Always on top" aria-pressed="true">📌</button>
+      <button id="hub-clickthrough" type="button" class="hub-btn" title="Click-through desktop" aria-pressed="false">⬚</button>
+      <button id="hub-minimize" type="button" class="hub-btn" title="Minimize">─</button>
+      <button id="hub-close" type="button" class="hub-btn hub-btn-danger" title="Close">✕</button>
+    </div>
+  </nav>
+
+  <section id="hub-chat-panel" class="hub-chat-panel hidden" aria-label="Chat with Luna">
+    <header class="hub-chat-header">
+      <span>Luna</span>
+      <button id="hub-chat-close" type="button" class="hub-chat-close">Close</button>
+    </header>
+    <div class="hub-chat-input-row">
+      <input id="hub-chat-input" type="text" placeholder="Talk to Luna…" autocomplete="off" />
+      <button id="hub-chat-send" type="button">Send</button>
+    </div>
+  </section>
+
+  <script type="module" src="./ui.js"></script>
+  <script type="module" src="./app.js"></script>
+  <script type="module" src="./hub.js"></script>
+
+</body>
+</html>

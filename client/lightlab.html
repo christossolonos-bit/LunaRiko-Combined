@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Light Lab</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+      "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.4.1/lib/three-vrm.module.js",
+      "@pixiv/three-vrm-animation": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm-animation@3.4.1/lib/three-vrm-animation.module.js"
+    }
+  }
+  </script>
+  <style>
+    /* Deliberately NOT styles.css — that file is the chat UI's, and this page
+       has no chat UI. A dark ground so an unlit scene still reads. */
+    html, body { margin: 0; height: 100%; background: #14161a; overflow: hidden; }
+    canvas { display: block; }
+    #hint {
+      position: fixed; left: 12px; bottom: 10px; z-index: 5;
+      font: 12px/1.6 system-ui, sans-serif; color: #8a929e; pointer-events: none;
+    }
+    #hint b { color: #cfd6e0; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div id="hint">
+    <b>click a light ball</b> to grab it &nbsp;·&nbsp;
+    <b>drag the arrows</b> to move it &nbsp;·&nbsp;
+    <b>drag empty space</b> to orbit &nbsp;·&nbsp;
+    everything auto-saves &nbsp;·&nbsp;
+    <b>📋 copy setup</b> when you like it
+    <br>stuck on a black screen? add <b>?reset=1</b> to the address to clear the saved setup
+  </div>
+  <script type="module" src="./lightlab.js"></script>
+</body>
+</html>

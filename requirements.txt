@@ -1,0 +1,39 @@
+# Python packages. Installed by setup.bat — you should not need to run this
+# by hand.
+#
+# Tested on Python 3.10 (Windows 10 / 11).
+
+# --- Core -------------------------------------------------------------------
+PyYAML                      # reads character_config.yaml
+python-dotenv               # reads .env
+requests                    # HTTP between the pieces
+
+# --- The server the browser talks to ----------------------------------------
+fastapi[standard]>=0.115.2
+uvicorn
+
+# --- Language models --------------------------------------------------------
+openai                      # writes her lines (and the memory summaries)
+groq                        # speech-to-text, and the tool-picking agent
+
+# --- Voice out --------------------------------------------------------------
+fish-audio-sdk              # the Fish Audio voice. GPT-SoVITS needs no package;
+                            # it is a separate program you talk to over HTTP.
+edge-tts                    # Microsoft Edge TTS (tts_backend: edge). Needs network.
+pyttsx3                     # Windows SAPI TTS (tts_backend: sapi). Fully offline.
+
+# --- Voice in ---------------------------------------------------------------
+sounddevice                 # microphone capture
+soundfile                   # reading and writing wav files
+numpy
+faster-whisper              # local speech-to-text (ASR_BACKEND=local) AND the
+                            # Silero VAD that decides when you stopped talking.
+                            # Set ENABLE_SILERO_VAD=False in server/config.py if
+                            # you would rather not have the VAD dependency —
+                            # turn-taking gets a bit worse.
+
+# --- Matching <expr:> and <emote:> tags to real animations ------------------
+sentence-transformers       # the small model in models/all-MiniLM-L6-v2
+
+# --- Memory (off by default — server/config.py) -----------------------------
+faiss-cpu                   # stores and searches long-term memories

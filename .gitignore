@@ -1,0 +1,33 @@
+# Your keys. Never share this file.
+.env
+.env.*
+!.env.example
+
+# Generated at runtime
+.venv/
+audio/
+logs/
+memories/
+chat_history*.json
+chat_history*.bak*
+uploads/*
+!uploads/.gitkeep
+client/audio/*.wav
+
+# Large local ML weights (download separately) — root only, not character VRMs
+/models/
+
+# Python
+*.pyc
+__pycache__/
+
+# Node
+node_modules/
+desktop/node_modules/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

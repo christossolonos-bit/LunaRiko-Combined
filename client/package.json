@@ -1,0 +1,13 @@
+{
+  "dependencies": {
+    "@pixiv/three-vrm": "^3.4.1",
+    "@pixiv/three-vrm-animation": "^3.4.1",
+    "three": "^0.179.1"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort"
+  }
+}

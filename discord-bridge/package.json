@@ -1,0 +1,21 @@
+{
+  "name": "luna-discord-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Discord voice/text bridge for Luna — drives Riko VRM turns over HTTP",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@discordjs/voice": "^0.19.2",
+    "@snazzah/davey": "^0.1.12",
+    "discord.js": "^14.27.0",
+    "dotenv": "^16.4.7",
+    "libsodium-wrappers": "^0.8.4",
+    "opusscript": "^0.0.8"
+  }
+}

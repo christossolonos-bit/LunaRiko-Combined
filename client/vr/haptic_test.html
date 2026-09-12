@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>VR Haptic Test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { background: #111; color: #eee; font-family: monospace; padding: 20px; }
+    #log { white-space: pre-wrap; font-size: 14px; margin-top: 20px; max-height: 70vh; overflow-y: auto; }
+    button { font-size: 18px; padding: 10px 20px; margin: 5px; cursor: pointer; }
+    .success { color: #4f4; }
+    .warn { color: #ff4; }
+    .error { color: #f44; }
+    .info { color: #8cf; }
+  </style>
+</head>
+<body>
+  <h2>VR Haptic Feedback Test</h2>
+  <p>Enter VR, then press trigger to test haptics on that controller.</p>
+  <div id="log"></div>
+
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+    import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/webxr/VRButton.js';
+
+    const logEl = document.getElementById('log');
+    function log(msg, cls = '') {
+      const line = document.createElement('div');
+      line.className = cls;
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(msg);
+    }
+
+    // Minimal Three.js setup
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.xr.enabled = true;
+    renderer.xr.setReferenceSpaceType('local-floor');
+
+    document.body.appendChild(renderer.domElement);
+    document.body.appendChild(VRButton.createButton(renderer));
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x222222);
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
+
+    // Add a reference cube so you know you're in the scene
+    const cube = new THREE.Mesh(
+      new THREE.BoxGeometry(0.3, 0.3, 0.3),
+      new THREE.MeshBasicMaterial({ color: 0x4488ff, wireframe: true })
+    );
+    cube.position.set(0, 1.2, -1);
+    scene.add(cube);
+
+    // Setup controllers
+    const controllers = [
+      renderer.xr.getController(0),
+      renderer.xr.getController(1),
+    ];
+    controllers.forEach((c, i) => {
+      scene.add(c);
+      c.addEventListener('selectstart', () => testHaptic(i));
+    });
+
+    function testHaptic(controllerIndex) {
+      const session = renderer.xr.getSession();
+      if (!session?.inputSources) {
+        log('No XR session or inputSources', 'error');
+        return;
+      }
+
+      log(`--- Trigger pressed on controller ${controllerIndex} ---`, 'info');
+
+      for (const source of session.inputSources) {
+        log(`InputSource: handedness=${source.handedness}`, 'info');
+        log(`  profiles: ${JSON.stringify(source.profiles)}`);
+        log(`  targetRayMode: ${source.targetRayMode}`);
+        log(`  gamepad: ${!!source.gamepad}`);
+
+        if (!source.gamepad) {
+          log('  No gamepad on this source', 'warn');
+          continue;
+        }
+
+        const gp = source.gamepad;
+
+        // Dump full gamepad info
+        log(`  gamepad.id: "${gp.id}"`);
+        log(`  gamepad.mapping: "${gp.mapping}"`);
+        log(`  gamepad.buttons: ${gp.buttons?.length}`);
+        log(`  gamepad.axes: ${gp.axes?.length}`);
+
+        // Check every possible haptic property
+        log(`  gamepad.hapticActuators: ${gp.hapticActuators}`);
+        log(`  gamepad.vibrationActuator: ${gp.vibrationActuator}`);
+
+        // Enumerate all gamepad keys to find any haptic-related property
+        const allKeys = [];
+        for (const key in gp) { allKeys.push(key); }
+        log(`  gamepad keys: ${allKeys.join(', ')}`);
+
+        // Also check prototype
+        const protoKeys = Object.getOwnPropertyNames(Object.getPrototypeOf(gp));
+        log(`  gamepad proto keys: ${protoKeys.join(', ')}`);
+
+        // --- Try all haptic methods ---
+
+        // Method 1: vibrationActuator.playEffect
+        if (gp.vibrationActuator && typeof gp.vibrationActuator.playEffect === 'function') {
+          log('  Trying vibrationActuator.playEffect("dual-rumble")...', 'info');
+          gp.vibrationActuator.playEffect('dual-rumble', {
+            startDelay: 0, duration: 200, weakMagnitude: 1.0, strongMagnitude: 1.0,
+          }).then(() => log('  vibrationActuator.playEffect => SUCCESS', 'success'))
+            .catch(e => log(`  vibrationActuator.playEffect => FAILED: ${e.message}`, 'error'));
+        }
+
+        // Method 2: vibrationActuator.pulse
+        if (gp.vibrationActuator && typeof gp.vibrationActuator.pulse === 'function') {
+          log('  Trying vibrationActuator.pulse()...', 'info');
+          try {
+            gp.vibrationActuator.pulse(1.0, 200);
+            log('  vibrationActuator.pulse => called', 'success');
+          } catch (e) {
+            log(`  vibrationActuator.pulse => FAILED: ${e.message}`, 'error');
+          }
+        }
+
+        // Method 3: hapticActuators[0]
+        if (gp.hapticActuators?.length > 0) {
+          const a = gp.hapticActuators[0];
+          log(`  hapticActuators[0] type: ${a.type}`, 'info');
+          if (typeof a.pulse === 'function') {
+            log('  Trying hapticActuators[0].pulse()...', 'info');
+            const r = a.pulse(1.0, 200);
+            if (r?.then) r.then(() => log('  pulse => SUCCESS', 'success')).catch(e => log(`  pulse => FAILED: ${e}`, 'error'));
+            else log('  pulse => called (no promise)', 'success');
+          }
+          if (typeof a.playEffect === 'function') {
+            log('  Trying hapticActuators[0].playEffect()...', 'info');
+            a.playEffect('dual-rumble', { startDelay: 0, duration: 200, weakMagnitude: 1.0, strongMagnitude: 1.0 })
+              .then(() => log('  playEffect => SUCCESS', 'success'))
+              .catch(e => log(`  playEffect => FAILED: ${e.message}`, 'error'));
+          }
+        }
+
+        // Method 4: check if haptics available on XRInputSource directly
+        log(`  source.hand: ${source.hand}`);
+        const srcKeys = [];
+        for (const key in source) { srcKeys.push(key); }
+        log(`  inputSource keys: ${srcKeys.join(', ')}`);
+      }
+    }
+
+    renderer.xr.addEventListener('sessionstart', () => log('VR Session started - press trigger to test haptics', 'success'));
+    renderer.xr.addEventListener('sessionend', () => log('VR Session ended', 'warn'));
+
+    renderer.setAnimationLoop(() => {
+      cube.rotation.y += 0.01;
+      renderer.render(scene, camera);
+    });
+
+    log('Page loaded. Click "Enter VR" to start.', 'info');
+    log('Once in VR, press trigger on each controller to test all haptic methods.', 'info');
+  </script>
+</body>
+</html>
