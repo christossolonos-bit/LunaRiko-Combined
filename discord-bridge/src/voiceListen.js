@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { EndBehaviorType } from "@discordjs/voice";
 import OpusScript from "opusscript";
+import { extractVoiceFingerprint } from "./voiceFingerprint.js";
 
 const DISCORD_RATE = 48_000;
 const DISCORD_CHANNELS = 2;
@@ -148,13 +149,21 @@ export function attachVoiceListen(connection, sttWorker, {
         return;
       }
 
+      const voice = extractVoiceFingerprint(pcm);
+      if (voice) {
+        console.log(
+          `[listen] voiceprint user=${userId} ${voice.label} ` +
+            `pitch=${voice.pitchHz}Hz centroid=${voice.centroidHz}Hz`,
+        );
+      }
+
       const wav = join(dir, `u-${userId}-${Date.now()}.wav`);
       try {
         writeWav16kMono(pcm, wav);
         const text = await sttWorker.transcribe(wav);
         if (text && text.trim()) {
           console.log(`[listen] ${userId}: ${text}`);
-          await onTranscript(text.trim(), { userId });
+          await onTranscript(text.trim(), { userId, voice });
         } else {
           console.log(`[listen] empty transcript user=${userId}`);
         }

@@ -64,6 +64,35 @@ def _set_reply_audio(target: str) -> None:
         print(f"[term] set_reply_audio failed: {type(e).__name__}: {e}")
 
 
+def _discord_chat_begin() -> None:
+    try:
+        req = urllib.request.Request(
+            f"{BROWSER_INPUT_URL.rstrip('/')}/discord_chat_reply/begin",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=2.0) as resp:
+            resp.read()
+    except Exception as e:
+        print(f"[term] discord_chat begin failed: {type(e).__name__}: {e}")
+
+
+def _discord_chat_finish(text: str, error: str | None = None) -> None:
+    body = json.dumps({"text": text or "", "error": error}).encode("utf-8")
+    try:
+        req = urllib.request.Request(
+            f"{BROWSER_INPUT_URL.rstrip('/')}/discord_chat_reply/finish",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=2.0) as resp:
+            resp.read()
+    except Exception as e:
+        print(f"[term] discord_chat finish failed: {type(e).__name__}: {e}")
+
+
 def _discord_vc_active() -> bool:
     try:
         req = urllib.request.Request(
@@ -125,8 +154,8 @@ def _wait_discord_tts_idle(timeout_s: float = 90.0) -> None:
     print("[term] Discord TTS wait timed out — resuming listen anyway")
 
 
-def _fetch_discord_overhear(limit: int = 40) -> str:
-    """Recent VC lines she overheard (wake-gated — context only, not a prompt to reply)."""
+def _fetch_discord_overhear(limit: int = 50) -> str:
+    """Recent VC transcript (always recorded; reply still wake-gated)."""
     try:
         url = (
             f"{BROWSER_INPUT_URL.rstrip('/')}/discord_overhear"
@@ -156,9 +185,10 @@ def _fetch_discord_overhear(limit: int = 40) -> str:
     if not bullets:
         return ""
     return (
-        "Recent Discord call you overheard while silent "
-        "(context only — people were NOT necessarily talking to you; "
-        "use this when the current speaker asks what was said / going on):\n"
+        "CALL TRANSCRIPT (Discord VC — you were listening quietly; "
+        "these lines are context only. People were NOT all talking to you. "
+        "Only answer the person who said your name this turn; "
+        "use this transcript when they ask what was said / going on):\n"
         + "\n".join(bullets)
     )
 
@@ -407,16 +437,23 @@ def main() -> None:
                 agent.end_response()
                 continue
 
-            # Discord-bridge turns → Discord speaker only.
+            # Discord-bridge turns:
+            #   in VC  → Discord speaker only
+            #   not VC → text channel reply + mp3 (discord_chat)
             # Browser / local mic (even after owner label) → webpage hears too.
             reply_audio = (payload.get("reply_audio") or "both").strip().lower()
             if from_discord_bridge:
-                reply_audio = "discord"
-            elif reply_audio not in ("discord", "browser", "both"):
+                if reply_audio == "discord_chat" or not _discord_vc_active():
+                    reply_audio = "discord_chat"
+                else:
+                    reply_audio = "discord"
+            elif reply_audio not in ("discord", "discord_chat", "browser", "both"):
                 reply_audio = "both"
             _set_reply_audio(reply_audio)
             if reply_audio == "discord":
                 print("[term] reply audio → Discord VC only (webpage silent)")
+            elif reply_audio == "discord_chat":
+                print("[term] reply audio → Discord text chat + mp3 (not in VC)")
             else:
                 print(f"[term] reply audio → {reply_audio}")
 
@@ -472,12 +509,14 @@ def main() -> None:
                 if live_ctx:
                     injected = "\n\n".join(p for p in (injected, live_ctx) if p)
                     print("[term] injected live memory (profile/turn-log)")
-                elif speaker or user_text.lstrip().startswith("[Discord VC"):
+                # Always attach the fresh VC transcript on Discord wakes so she
+                # has call context even when live memory is thin.
+                if speaker or user_text.lstrip().startswith("[Discord VC"):
                     overhear = _fetch_discord_overhear()
                     if overhear:
                         injected = "\n\n".join(p for p in (injected, overhear) if p)
                         print(
-                            f"[term] injected Discord overhear "
+                            f"[term] injected Discord call transcript "
                             f"({overhear.count(chr(10))+1} lines)"
                         )
                 if speaker:
@@ -497,8 +536,13 @@ def main() -> None:
                 user_text, image_path, injected,
             )
 
+            if reply_audio == "discord_chat":
+                _discord_chat_begin()
+
             # 3) One full turn. Wrapped so a single bad chunk (say, SoVITS
             #    rejecting odd punctuation) costs that turn, not the session.
+            assistant_text = ""
+            turn_error = None
             try:
                 updated = run_turn(
                     user_text,
@@ -523,12 +567,12 @@ def main() -> None:
                     history = updated
                 save_history(history)
                 print(f"[term] history saved ({len(history)} messages)\n")
+                try:
+                    assistant_text = updated[-1].get("content") or ""
+                except Exception:
+                    assistant_text = ""
                 # Luna's spoken reply → permanent live turn log.
                 if ENABLE_LIVE_MEMORY:
-                    try:
-                        assistant_text = updated[-1].get("content") or ""
-                    except Exception:
-                        assistant_text = ""
                     if assistant_text:
                         _post_live_memory_turn(
                             assistant_text,
@@ -546,14 +590,23 @@ def main() -> None:
                             speaker="local",
                         )
             except Exception as e:
-                print(f"[term] ERROR during run_turn: {type(e).__name__}: {e}")
+                turn_error = f"{type(e).__name__}: {e}"
+                print(f"[term] ERROR during run_turn: {turn_error}")
             finally:
+                if reply_audio == "discord_chat":
+                    from server.memory.session_log import strip_tags
+                    spoken = strip_tags(assistant_text) if assistant_text else ""
+                    _discord_chat_finish(spoken, error=turn_error)
+                    print(
+                        f"[term] discord chat reply ready "
+                        f"({len(spoken)} chars{', ERR' if turn_error else ''})"
+                    )
                 # Reset routing after each turn; next Discord wake sets discord again.
                 _set_reply_audio("both")
 
             # Discord VC: wait until the bridge finished playing every clip.
             # Otherwise listen resumes mid-reply and the next wake cuts her off.
-            if from_discord_bridge or reply_audio == "discord":
+            if reply_audio == "discord":
                 _wait_discord_tts_idle()
 
             # 4) Resume listening. Always called, even if the turn failed.

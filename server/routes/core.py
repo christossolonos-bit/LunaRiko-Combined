@@ -136,13 +136,13 @@ async def ws_status(ws: WebSocket) -> None:
 async def talk(req: TalkRequest) -> dict:
     """Forward TTS to Discord and/or the browser depending on reply_audio_target."""
     target = (reply_audio_target.get("value") or "both").strip().lower()
-    if target not in ("discord", "browser", "both"):
+    if target not in ("discord", "discord_chat", "browser", "both"):
         target = "both"
 
     music_on = bool(discord_music.get("playing"))
 
     # /luna play: don't queue Discord talk over the song. Browser can still play.
-    if music_on and target == "discord":
+    if music_on and target in ("discord", "discord_chat"):
         logger.info(
             "talk dropped — discord music playing (%r)",
             discord_music.get("title"),
@@ -153,7 +153,7 @@ async def talk(req: TalkRequest) -> dict:
             "title": discord_music.get("title"),
         }
 
-    if target in ("discord", "both") and not music_on:
+    if target == "discord" and not music_on:
         enqueue_discord_audio(
             audio_path=req.audio_path,
             audio_text=req.audio_text,
@@ -161,7 +161,38 @@ async def talk(req: TalkRequest) -> dict:
             duration=req.audio_duraction,
         )
 
-    # Discord-only: do NOT push audio to the webpage.
+    if target == "discord_chat" and not music_on:
+        from server.routes._common import append_discord_chat_clip
+        append_discord_chat_clip(req.audio_path)
+        # Still drive the VRM lips on the desktop overlay.
+        payload = {
+            "type": "start_animation",
+            "audio_path": req.audio_path,
+            "expression": req.expression,
+            "audio_text": req.audio_text,
+            "audio_duraction": req.audio_duraction,
+            "skip_browser_audio": True,
+        }
+        await notify_clients(payload)
+        logger.info(
+            "talk → Discord chat reply clip (VRM lips, no webpage speaker) text=%r",
+            (req.audio_text or "")[:80],
+        )
+        return {
+            "status": "sent",
+            "reply_audio": "discord_chat",
+            "browser": False,
+        }
+
+    if target in ("both",) and not music_on:
+        enqueue_discord_audio(
+            audio_path=req.audio_path,
+            audio_text=req.audio_text,
+            expression=req.expression,
+            duration=req.audio_duraction,
+        )
+
+    # Discord VC-only: do NOT push audio to the webpage.
     if target == "discord":
         logger.info(
             "talk → Discord only (no browser WS) text=%r",

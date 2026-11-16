@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
 
 # Make print() safe on a Windows console.
 #
@@ -31,6 +32,9 @@ for _stream in (sys.stdout, sys.stderr):
 # Project root = the folder this package sits in. Everything is resolved from
 # here, so the project runs from wherever you unzipped it.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# Load .env before any API-key resolution (NVIDIA_API_KEY, FISH_API_KEY, …).
+load_dotenv(PROJECT_ROOT / ".env", override=False)
 
 
 # ===========================================================================
@@ -100,7 +104,22 @@ HISTORY_FILE: Path = Path(_abs(_config["history_file"]))
 LOCAL_LLM_BASE_URL: str = str(
     _config.get("local_llm_base_url") or "http://127.0.0.1:11434"
 ).rstrip("/")
-LOCAL_LLM_API_KEY: str = str(_config.get("local_llm_api_key") or "ollama")
+
+
+def _resolve_local_llm_api_key() -> str:
+    """Yaml key, env:NAME sentinel, or NVIDIA_API_KEY when hitting NVIDIA NIM."""
+    raw = str(_config.get("local_llm_api_key") or "").strip()
+    if raw.lower().startswith("env:"):
+        return (os.getenv(raw.split(":", 1)[1].strip()) or "").strip()
+    if raw in ("nvidia", "NVIDIA_API_KEY"):
+        return (os.getenv("NVIDIA_API_KEY") or "").strip()
+    host = LOCAL_LLM_BASE_URL.lower()
+    if "nvidia.com" in host or "integrate.api.nvidia" in host:
+        return (os.getenv("NVIDIA_API_KEY") or raw or "").strip()
+    return raw or "ollama"
+
+
+LOCAL_LLM_API_KEY: str = _resolve_local_llm_api_key()
 # "ollama" = native /api/chat (recommended). "openai" = /v1/chat/completions.
 LOCAL_LLM_API_STYLE: str = str(
     _config.get("local_llm_api_style") or "ollama"

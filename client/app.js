@@ -19,7 +19,7 @@ import { AnimationManager } from './animation/animationManager.js';
 import { MovementController } from './animation/movementController.js';
 import { showSubtitleStreaming, setSubtitlesEnabled, getSubtitlesEnabled } from './overlay/subtitles.js';
 import { initFpsMeter } from './overlay/fpsMeter.js';
-import { initWebcam, takePictureAndUpload } from './interaction/webcam.js';
+import { takePictureAndUpload } from './interaction/webcam.js';
 import { connectWS, initUI } from './ui.js';
 import { initVRMClickDetector } from './interaction/vrmClickDetector.js';
 import { isVRSupported } from './vr/vrManager.js';
@@ -45,9 +45,8 @@ if (subtitleBtn) {
   });
 }
 
-// Webcam, for the video button in the UI. Harmless if you deny the prompt —
-// the rest of the page carries on without it.
-await initWebcam();
+// Webcam is NOT opened on startup — only when you hit the camera button
+// (or take a picture). That avoids the permission prompt / LED every launch.
 
 // --- App State ---
 let vrm = null;

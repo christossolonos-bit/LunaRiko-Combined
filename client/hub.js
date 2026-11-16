@@ -1,8 +1,9 @@
 /**
  * Desktop hub — Fluffy-style dock for Electron transparent mode.
- * Chat / mute / pin / click-through / minimize / close.
+ * Chat / mute / camera / pin / click-through / minimize / close.
  */
 import { HTTP_URL, TRANSPARENT_MODE } from './config.js';
+import { startVideoStream, stopVideoStream, isVideoStreaming } from './interaction/videoStream.js';
 
 const desktop = typeof window !== 'undefined' ? window.lunaDesktop : null;
 
@@ -143,6 +144,7 @@ async function initHub() {
 
   const btnChat = $('hub-chat');
   const btnMic = $('hub-mic');
+  const btnCam = $('hub-cam');
   const btnMonitor = $('hub-monitor');
   const btnMonitorLabel = $('hub-monitor-label');
   const btnPin = $('hub-pin');
@@ -156,6 +158,17 @@ async function initHub() {
   let chatOpen = false;
   let micMuted = false;
   let clickThrough = false;
+
+  const setCamUi = (on) => {
+    if (!btnCam) return;
+    btnCam.setAttribute('aria-pressed', String(on));
+    btnCam.classList.toggle('hub-btn-active', on);
+    btnCam.textContent = on ? '📸' : '📷';
+    btnCam.title = on
+      ? 'Camera on — Luna can see you (click to stop)'
+      : 'Camera off — click to let Luna see you';
+  };
+  setCamUi(false);
 
   restoreHubPosition(dock, panel);
   setupDockDrag(dock, $('hub-handle'), panel);
@@ -232,6 +245,22 @@ async function initHub() {
       await setMute(micMuted);
     } catch (err) {
       console.error('[hub] mute failed', err);
+    }
+  });
+
+  btnCam?.addEventListener('click', async () => {
+    try {
+      if (isVideoStreaming()) {
+        stopVideoStream();
+        setCamUi(false);
+      } else {
+        await startVideoStream();
+        setCamUi(true);
+      }
+    } catch (err) {
+      console.error('[hub] camera failed', err);
+      setCamUi(false);
+      alert('Could not access camera. Check permissions.');
     }
   });
 

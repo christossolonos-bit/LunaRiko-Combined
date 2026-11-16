@@ -16,7 +16,9 @@ _DISCORD_VC_RE = re.compile(
     r"(?P<display>.+?)\s+"
     r"\(@(?P<username>[^)]+)\)\s+"
     r"role=(?P<role>owner|guest)\s+"
-    r"(?P<who>YOU \(owner\)|other user)\]:\s*",
+    r"(?P<who>YOU \(owner\)|other user)"
+    r"(?:\s+voice=(?P<voice>[^\]]+))?"
+    r"\]:\s*",
     re.DOTALL,
 )
 
@@ -34,18 +36,21 @@ class DiscordSpeaker:
     username: str
     role: str  # owner | guest
     who_label: str
+    voice: Optional[str] = None
 
 
 def parse_discord_speaker(user_text: str) -> Optional[DiscordSpeaker]:
     text = (user_text or "").lstrip()
     m = _DISCORD_VC_RE.match(text)
     if m:
+        voice = (m.group("voice") or "").strip() or None
         return DiscordSpeaker(
             subject_id=m.group("id"),
             display=m.group("display").strip(),
             username=m.group("username").strip(),
             role=m.group("role").strip().lower(),
             who_label=m.group("who").strip(),
+            voice=voice,
         )
     m2 = _DISCORD_VOICE_RE.match(text)
     if m2:
@@ -55,6 +60,7 @@ def parse_discord_speaker(user_text: str) -> Optional[DiscordSpeaker]:
             username=m2.group("display").strip(),
             role="guest",
             who_label="other user",
+            voice=None,
         )
     return None
 
@@ -78,13 +84,30 @@ def speaker_context_block(speaker: DiscordSpeaker) -> str:
             " This is Solonaras — same person on Discord AND the website/mic. "
             "Answer HIM in second person; never narrate Solonaras in third person."
         )
+    voice = ""
+    if speaker.voice:
+        voice = (
+            f" Voice fingerprint: {speaker.voice} — you can tell this caller "
+            "apart by pitch/timbre as well as Discord id."
+        )
+    else:
+        try:
+            from server.memory import voiceprint as _vp
+
+            extra = _vp.format_for_prompt(speaker.subject_id)
+            if extra:
+                voice = " " + extra
+        except Exception:
+            pass
     return (
         f"CURRENT SPEAKER: {speaker.display} (@{speaker.username}) "
         f"<@{speaker.subject_id}> role={speaker.role} ({speaker.who_label})."
-        f"{same}\n"
+        f"{same}{voice}\n"
         "Speak TO this person only. Travis, T4rik, and Solonaras are different "
         "people — never move hobbies, trips, or preferences across them. "
-        "Only mention another person's facts if THIS speaker asks about them."
+        "Only mention another person's facts if THIS speaker asks about them. "
+        "When several people are in VC, use voice pitch/timbre plus Discord tags "
+        "to keep each speaker's words and facts separate."
     )
 
 

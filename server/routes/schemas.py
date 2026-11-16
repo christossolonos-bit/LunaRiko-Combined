@@ -61,7 +61,12 @@ class SendMessageRequest(BaseModel):
 
 
 class ReplyAudioRequest(BaseModel):
-    target: str = "both"  # "discord" | "browser" | "both"
+    target: str = "both"  # "discord" | "discord_chat" | "browser" | "both"
+
+
+class DiscordChatReplyFinishRequest(BaseModel):
+    text: str = ""
+    error: Optional[str] = None
 
 
 class DiscordVcRequest(BaseModel):
@@ -83,6 +88,23 @@ class DiscordOverhearRequest(BaseModel):
     user_id: Optional[str] = None
     display: Optional[str] = None
     role: Optional[str] = None
+
+
+class VoiceprintLearnRequest(BaseModel):
+    """Discord bridge: enroll / update a caller's acoustic voice signature."""
+    user_id: str
+    display: Optional[str] = None
+    vector: list[float]
+    pitch_hz: Optional[float] = None
+    pitch_std: Optional[float] = None
+    centroid_hz: Optional[float] = None
+    label: Optional[str] = None
+
+
+class VoiceprintIdentifyRequest(BaseModel):
+    """Match an unknown voice sample against enrolled fingerprints."""
+    vector: list[float]
+    exclude_user_id: Optional[str] = None
 
 
 class LiveMemoryTurnRequest(BaseModel):

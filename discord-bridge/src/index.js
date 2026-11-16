@@ -1,9 +1,10 @@
 /**
  * Luna Discord bridge — listen + talk + music against Riko VRM core.
  *
- *   /luna join|leave|say|status|play|skip|stop
+ *   /luna join|leave|say|status|play|radio|skip|stop
  *   VC speech → Whisper STT → Riko /send_message → TTS plays in VC + VRM
- *   /luna play <query|url> → yt-dlp → Discord VC
+ *   Voice: "Luna play …" / "Luna play distrokid …" / "Luna play radio …" / "Luna stop"
+ *   /luna play <query|url> → YouTube, DistroKid folder, or radio
  */
 
 import "dotenv/config";
@@ -15,6 +16,7 @@ import {
   Routes,
   SlashCommandBuilder,
   ChannelType,
+  AttachmentBuilder,
 } from "discord.js";
 import {
   joinVoiceChannel,
@@ -33,9 +35,11 @@ import { join, resolve, isAbsolute, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
+import { spawn } from "node:child_process";
 import { SttWorker } from "./sttWorker.js";
 import { attachVoiceListen } from "./voiceListen.js";
-import { MusicQueue } from "./music.js";
+import { MusicQueue, listRadioStationNames, musicPaths } from "./music.js";
+import { parseMusicIntent } from "./musicIntents.js";
 
 const TOKEN = process.env.DISCORD_BOT_TOKEN?.trim();
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID?.trim();
@@ -51,17 +55,23 @@ const OWNER_USER_IDS = new Set(
     .map((s) => s.trim())
     .filter(Boolean),
 );
-// VC wake word — she still STTs everyone, but only replies when addressed
-// (or during a short follow-up window after a wake).
+// VC wake word — STT/transcribe everyone always; reply ONLY when her name is said.
+// Follow-up window defaults to 0 (must say "Luna" each time). Set LUNA_WAKE_FOLLOWUP_MS
+// if you want a short no-name continue window after a wake.
 const WAKE_REQUIRED = (process.env.LUNA_WAKE_REQUIRED || "1") !== "0";
 const WAKE_WORDS = String(process.env.LUNA_WAKE_WORDS || "luna,hey luna,okay luna,ok luna")
   .split(",")
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean)
   .sort((a, b) => b.length - a.length);
-const WAKE_FOLLOWUP_MS = Number(process.env.LUNA_WAKE_FOLLOWUP_MS || 45000);
+const WAKE_FOLLOWUP_MS = Number(process.env.LUNA_WAKE_FOLLOWUP_MS || 0);
 /** Keep ears closed this long after each TTS clip so inter-sentence gaps don't barge in. */
 const TTS_SETTLE_MS = Number(process.env.LUNA_TTS_SETTLE_MS || 1500);
+/** Discord VC TTS gain. 1.0 = normal; >1 boosts so other bots hear her better. */
+const TTS_VOLUME = Math.min(
+  4,
+  Math.max(0.1, Number(process.env.LUNA_TTS_VOLUME || 2.0) || 2.0),
+);
 
 if (!TOKEN || !CLIENT_ID) {
   console.error("[luna-discord] Set DISCORD_BOT_TOKEN and DISCORD_CLIENT_ID in discord-bridge/.env");
@@ -82,8 +92,25 @@ const commands = [
     .addSubcommand((s) =>
       s
         .setName("play")
-        .setDescription("Play music from YouTube (name or link)")
-        .addStringOption((o) => o.setName("query").setDescription("Song name or YouTube URL").setRequired(true)))
+        .setDescription("Play YouTube, DistroKid library, or auto")
+        .addStringOption((o) =>
+          o.setName("query").setDescription("Song name, YouTube URL, or library title").setRequired(true))
+        .addStringOption((o) =>
+          o
+            .setName("source")
+            .setDescription("Where to play from")
+            .addChoices(
+              { name: "auto", value: "auto" },
+              { name: "youtube", value: "youtube" },
+              { name: "distrokid", value: "distrokid" },
+              { name: "radio", value: "radio" },
+            )))
+    .addSubcommand((s) =>
+      s
+        .setName("radio")
+        .setDescription("Play a named radio station")
+        .addStringOption((o) =>
+          o.setName("station").setDescription("Station name (see radio-stations.json)").setRequired(true)))
     .addSubcommand((s) => s.setName("skip").setDescription("Skip current song"))
     .addSubcommand((s) => s.setName("stop").setDescription("Stop music and clear queue"))
     .addSubcommand((s) => s.setName("status").setDescription("Show bridge + Riko + music status")),
@@ -108,15 +135,122 @@ async function rikoHealth() {
 
 async function sendToRiko(text, opts = {}) {
   const inVc = Boolean(voiceGuildId && getVoiceConnection(voiceGuildId));
-  // When we're in the call, Discord bot speaks — not the webpage speaker.
-  const source = opts.source || (inVc ? "discord" : "both");
+  // In VC → speak in the call. Out of VC → text chat reply + mp3.
+  const source = opts.source || (inVc ? "discord" : "discord_chat");
   const res = await fetch(`${RIKO_HTTP}/send_message`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message_text: text, source }),
+    body: JSON.stringify({
+      message_text: text,
+      source,
+      reply_audio: source,
+    }),
   });
   if (!res.ok) throw new Error(`send_message ${res.status}: ${await res.text()}`);
   return res.json();
+}
+
+function runFfmpeg(args) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn("ffmpeg", args, { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
+    let err = "";
+    child.stderr.on("data", (d) => {
+      err += d.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolvePromise();
+      else reject(new Error(`ffmpeg exit ${code}: ${err.slice(-400)}`));
+    });
+  });
+}
+
+async function wavsToMp3(wavPaths) {
+  const paths = (wavPaths || []).map((p) => resolveAudioPath(p) || p).filter((p) => p && existsSync(p));
+  if (!paths.length) return null;
+  const dir = join(tmpdir(), "luna-discord-chat");
+  mkdirSync(dir, { recursive: true });
+  const outMp3 = join(dir, `luna-${Date.now()}.mp3`);
+  if (paths.length === 1) {
+    await runFfmpeg(["-y", "-i", paths[0], "-codec:a", "libmp3lame", "-q:a", "4", outMp3]);
+    return outMp3;
+  }
+  const args = ["-y"];
+  for (const p of paths) args.push("-i", p);
+  const labels = paths.map((_, i) => `[${i}:a]`).join("");
+  args.push(
+    "-filter_complex",
+    `${labels}concat=n=${paths.length}:v=0:a=1[a]`,
+    "-map",
+    "[a]",
+    "-codec:a",
+    "libmp3lame",
+    "-q:a",
+    "4",
+    outMp3,
+  );
+  await runFfmpeg(args);
+  return outMp3;
+}
+
+async function waitForDiscordChatReply({ afterVersion = 0, timeoutMs = 180_000 } = {}) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const res = await fetch(
+        `${RIKO_HTTP}/pending_discord_chat_reply?consume=0`,
+        { signal: AbortSignal.timeout(3000) },
+      );
+      if (res.ok) {
+        const snap = await res.json();
+        if (snap.ready && Number(snap.version || 0) > Number(afterVersion || 0)) {
+          const take = await fetch(
+            `${RIKO_HTTP}/pending_discord_chat_reply?consume=1`,
+            { signal: AbortSignal.timeout(3000) },
+          );
+          if (take.ok) return take.json();
+          return snap;
+        }
+      }
+    } catch {
+      /* server restarting */
+    }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  throw new Error("timed out waiting for Luna's text reply");
+}
+
+async function postChatReply(messageOrInteraction, labeled) {
+  const before = await fetch(`${RIKO_HTTP}/pending_discord_chat_reply?consume=0`)
+    .then((r) => (r.ok ? r.json() : { version: 0 }))
+    .catch(() => ({ version: 0 }));
+  const sent = await sendToRiko(labeled, { source: "discord_chat" });
+  console.log(`[luna-discord] text→riko v${sent.version}: ${labeled}`);
+  const reply = await waitForDiscordChatReply({ afterVersion: before.version || 0 });
+  if (reply.error && !reply.text) {
+    throw new Error(reply.error);
+  }
+  const text = (reply.text || "").trim() || "…";
+  const files = [];
+  let mp3 = null;
+  try {
+    mp3 = await wavsToMp3(reply.audio_paths || []);
+    if (mp3) {
+      files.push(new AttachmentBuilder(mp3, { name: "luna.mp3" }));
+    }
+  } catch (e) {
+    console.warn("[luna-discord] mp3 convert failed:", e.message);
+  }
+  const payload = { content: text.slice(0, 1900), files };
+  if (messageOrInteraction.reply && messageOrInteraction.author) {
+    await messageOrInteraction.reply(payload);
+  } else if (messageOrInteraction.editReply) {
+    await messageOrInteraction.editReply(payload);
+  } else {
+    await messageOrInteraction.channel.send(payload);
+  }
+  if (mp3) unlink(mp3).catch(() => {});
+  return reply;
 }
 
 async function setDiscordVcActive(active) {
@@ -225,8 +359,9 @@ function shouldReplyToVoice(text, userId) {
     lastWakeUserId = userId ? String(userId) : null;
     return true;
   }
-  // Same speaker continuing shortly after waking her — no need to repeat "Luna".
+  // Optional short follow-up (off by default): same speaker, no need to repeat "Luna".
   if (
+    WAKE_FOLLOWUP_MS > 0 &&
     lastWakeUserId &&
     userId &&
     String(userId) === lastWakeUserId &&
@@ -247,10 +382,10 @@ function isOwnerUserId(userId) {
 /**
  * Stable speaker tag so Luna can tell people apart in a group call.
  * Example:
- *   [Discord VC <@123> Solonaras (@solonaras) role=owner]: hey
- *   [Discord VC <@456> Travis (@travis) role=guest]: what
+ *   [Discord VC <@123> Solonaras (@solonaras) role=owner YOU (owner) voice=low~105Hz warm]: hey
+ *   [Discord VC <@456> Travis (@travis) role=guest other user voice=mid~175Hz bright]: what
  */
-async function formatDiscordSpeaker(userId, guild = null) {
+async function formatDiscordSpeaker(userId, guild = null, voiceLabel = null) {
   const id = String(userId || "");
   let username = id || "unknown";
   let display = "someone";
@@ -271,18 +406,50 @@ async function formatDiscordSpeaker(userId, guild = null) {
   }
   const role = isOwnerUserId(id) ? "owner" : "guest";
   const whoLabel = role === "owner" ? "YOU (owner)" : "other user";
+  const voiceBit = voiceLabel ? ` voice=${String(voiceLabel).replace(/[\[\]]/g, "")}` : "";
   return {
     tag: `<@${id}>`,
     display,
     username,
     role,
     whoLabel,
-    linePrefix: `[Discord VC ${`<@${id}>`} ${display} (@${username}) role=${role} ${whoLabel}]`,
+    voiceLabel: voiceLabel || null,
+    linePrefix: `[Discord VC ${`<@${id}>`} ${display} (@${username}) role=${role} ${whoLabel}${voiceBit}]`,
   };
 }
 
-async function labelDiscordUtterance(userId, text, guild = null) {
-  const info = await formatDiscordSpeaker(userId, guild);
+async function learnVoiceprint(userId, display, voice) {
+  if (!userId || !voice?.vector?.length) return null;
+  try {
+    const res = await fetch(`${RIKO_HTTP}/voiceprint/learn`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: String(userId),
+        display: display || undefined,
+        vector: voice.vector,
+        pitch_hz: voice.pitchHz,
+        pitch_std: voice.pitchStd,
+        centroid_hz: voice.centroidHz,
+        label: voice.label,
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    console.log(
+      `[voiceprint] learned ${display || userId} → ${data.label || voice.label} ` +
+        `(samples=${data.samples || "?"})`,
+    );
+    return data;
+  } catch (e) {
+    console.warn("[voiceprint] learn failed:", e.message);
+    return null;
+  }
+}
+
+async function labelDiscordUtterance(userId, text, guild = null, voiceLabel = null) {
+  const info = await formatDiscordSpeaker(userId, guild, voiceLabel);
   return `${info.linePrefix}: ${text}`;
 }
 
@@ -293,11 +460,71 @@ music.onPlaying = (track) => {
     // Don't let queued Luna TTS talk over the song.
     ttsQueue.length = 0;
     deferredReply = null;
-    console.log(`[luna-discord] music on — Luna stays quiet: ${track.title}`);
+    console.log(
+      `[luna-discord] music on (${track.source || track.kind}) — quiet: ${track.title}`,
+    );
   } else {
     console.log("[luna-discord] music off — Luna can talk again");
   }
 };
+
+/** Hard interrupt: stop music + clear her TTS queue. */
+function interruptPlayback(reason = "stop") {
+  music.stop();
+  ttsQueue.length = 0;
+  deferredReply = null;
+  lunaSpeaking = false;
+  ttsHoldUntil = 0;
+  lastReportedTtsBusy = true; // force sync below
+  syncTtsBusy().catch(() => {});
+  console.log(`[luna-discord] interrupted (${reason})`);
+}
+
+async function handleMusicIntent(intent, meta = {}) {
+  const guild = voiceGuildId ? client.guilds.cache.get(voiceGuildId) : null;
+  if (!voiceGuildId || !getVoiceConnection(voiceGuildId)) {
+    return { ok: false, message: "Not in a voice channel." };
+  }
+
+  if (intent.type === "stop") {
+    interruptPlayback("voice-stop");
+    return { ok: true, message: "Stopped.", announce: false };
+  }
+  if (intent.type === "skip") {
+    music.skip();
+    ttsQueue.length = 0;
+    deferredReply = null;
+    return { ok: true, message: "Skipped.", announce: false };
+  }
+  if (intent.type === "play") {
+    try {
+      const track = await music.enqueue(intent.query, intent.source || "auto");
+      const where =
+        track.source === "distrokid"
+          ? "DistroKid"
+          : track.source === "radio"
+            ? "radio"
+            : "YouTube";
+      // Brief in-character confirm (wake already said).
+      const confirm = await labelDiscordUtterance(
+        meta.userId,
+        `I asked you to play music. Confirm in ONE short sentence that you started ` +
+          `"${track.title}" from ${where}. Do not ask follow-ups.`,
+        guild,
+        meta.voiceLabel || null,
+      );
+      return {
+        ok: true,
+        message: `Playing ${track.title} (${where})`,
+        announce: confirm,
+        track,
+      };
+    } catch (e) {
+      return { ok: false, message: e.message, announce: false };
+    }
+  }
+  return { ok: false, message: "Unknown music intent" };
+}
 
 function isTtsBusy() {
   return (
@@ -387,7 +614,7 @@ async function playClip(filePath, durationHintSec = null) {
   await syncTtsBusy();
   try {
     const resource = createAudioResource(filePath, { inlineVolume: true });
-    resource.volume?.setVolume(1.0);
+    resource.volume?.setVolume(TTS_VOLUME);
     player.play(resource);
     await entersState(player, AudioPlayerStatus.Playing, 5_000).catch(() => null);
     await entersState(player, AudioPlayerStatus.Idle, 180_000).catch(() => null);
@@ -490,7 +717,14 @@ async function attachListen(connection) {
       if (!raw) return;
 
       const guild = voiceGuildId ? client.guilds.cache.get(voiceGuildId) : null;
-      const info = await formatDiscordSpeaker(meta.userId, guild);
+      const voice = meta.voice || null;
+      const voiceLabel = voice?.label || null;
+      const info = await formatDiscordSpeaker(meta.userId, guild, voiceLabel);
+
+      // Learn this caller's pitch/timbre so Luna can tell voices apart.
+      if (meta.userId && voice?.vector?.length) {
+        learnVoiceprint(meta.userId, info.display, voice).catch(() => {});
+      }
 
       // Always remember the call — even without a wake word (and during music).
       await sendOverhear({
@@ -500,19 +734,72 @@ async function attachListen(connection) {
         role: info.role,
       });
 
-      if (musicPlaying) {
-        console.log(`[luna-discord] overhear (music, no reply): ${info.display}: ${raw}`);
+      // Music / interrupt intents (play needs her name; stop/skip work during music).
+      const intent = parseMusicIntent(raw, {
+        musicPlaying,
+        wakeWords: WAKE_WORDS,
+      });
+      const woken = shouldReplyToVoice(raw, meta.userId);
+      const stopOrSkip = intent && (intent.type === "stop" || intent.type === "skip");
+      const playCmd = intent && intent.type === "play";
+      if (stopOrSkip && (musicPlaying || isTtsBusy() || woken)) {
+        const result = await handleMusicIntent(intent, {
+          userId: meta.userId,
+          voiceLabel,
+        });
+        console.log(`[luna-discord] music intent ${intent.type}: ${result.message}`);
+        return;
+      }
+      if (playCmd && woken) {
+        const result = await handleMusicIntent(intent, {
+          userId: meta.userId,
+          voiceLabel,
+        });
+        console.log(`[luna-discord] music intent play: ${result.message}`);
+        if (result.ok && result.announce) {
+          try {
+            await sendToRiko(result.announce);
+          } catch (e) {
+            console.warn("[luna-discord] play announce failed:", e.message);
+          }
+        } else if (!result.ok) {
+          try {
+            const fail = await labelDiscordUtterance(
+              meta.userId,
+              `Music play failed: ${result.message}. Apologize in one short sentence.`,
+              guild,
+              voiceLabel,
+            );
+            await sendToRiko(fail);
+          } catch {}
+        }
         return;
       }
 
-      if (!shouldReplyToVoice(raw, meta.userId)) {
-        console.log(`[luna-discord] overhear (no wake): ${info.display}: ${raw}`);
+      if (musicPlaying) {
+        console.log(
+          `[luna-discord] overhear (music, no reply): ${info.display}` +
+            `${voiceLabel ? ` [${voiceLabel}]` : ""}: ${raw}`,
+        );
+        return;
+      }
+
+      if (!woken) {
+        console.log(
+          `[luna-discord] overhear (no wake): ${info.display}` +
+            `${voiceLabel ? ` [${voiceLabel}]` : ""}: ${raw}`,
+        );
         return;
       }
 
       try {
         const spoken = stripWakeWord(raw);
-        const labeled = await labelDiscordUtterance(meta.userId, spoken, guild);
+        const labeled = await labelDiscordUtterance(
+          meta.userId,
+          spoken,
+          guild,
+          voiceLabel,
+        );
         // Don't start a new reply while VC TTS is still playing — that cuts her off.
         if (isTtsBusy()) {
           deferredReply = labeled;
@@ -610,7 +897,7 @@ client.on("interactionCreate", async (interaction) => {
         `Joined **${joined.channel.name}**. I only talk in this call now (website silent). ` +
           `You are tagged as **owner** (${hostTag.tag} ${hostTag.display}). ` +
           (WAKE_REQUIRED
-            ? `I listen quietly; say **${WAKE_WORDS[0] || "luna"}** when you want a reply. `
+            ? `I transcribe the call quietly; say **${WAKE_WORDS[0] || "luna"}** when you want me to talk. `
             : "") +
           `Talk, then pause ~1s. Music: \`/luna play\`.`,
       );
@@ -632,15 +919,27 @@ client.on("interactionCreate", async (interaction) => {
 
     if (sub === "say") {
       const text = interaction.options.getString("text", true).trim();
-      await interaction.deferReply({ ephemeral: true });
-      const labeled = await labelDiscordUtterance(interaction.user.id, text, interaction.guild);
-      const result = await sendToRiko(labeled);
-      await interaction.editReply(`Sent to Luna (v${result.version}).`);
+      const inVc = Boolean(voiceGuildId && getVoiceConnection(voiceGuildId));
+      if (inVc) {
+        await interaction.deferReply({ ephemeral: true });
+        const labeled = await labelDiscordUtterance(interaction.user.id, text, interaction.guild);
+        const result = await sendToRiko(labeled, { source: "discord" });
+        await interaction.editReply(`Sent to Luna (v${result.version}).`);
+        return;
+      }
+      await interaction.deferReply({ ephemeral: false });
+      try {
+        const labeled = await labelDiscordUtterance(interaction.user.id, text, interaction.guild);
+        await postChatReply(interaction, labeled);
+      } catch (e) {
+        await interaction.editReply(`Couldn't get Luna's reply: ${e.message}`);
+      }
       return;
     }
 
     if (sub === "play") {
       const query = interaction.options.getString("query", true).trim();
+      const source = interaction.options.getString("source") || "auto";
       if (!voiceGuildId || !getVoiceConnection(interaction.guildId)) {
         await interaction.reply({
           content: "I'm not in a voice channel. Use `/luna join` first.",
@@ -650,13 +949,35 @@ client.on("interactionCreate", async (interaction) => {
       }
       await interaction.deferReply();
       try {
-        const track = await music.enqueue(query);
+        const track = await music.enqueue(query, source);
         await interaction.editReply(
-          `Playing **${track.title}** — Luna will stay quiet until the song ends. ` +
-            `(\`/luna skip\` / \`/luna stop\` to cut it.)`,
+          `Playing **${track.title}** (${track.source || source}). ` +
+            `Say **Luna stop** (or \`/luna stop\`) to cut it.`,
         );
       } catch (e) {
         await interaction.editReply(`Couldn't play that: ${e.message}`);
+      }
+      return;
+    }
+
+    if (sub === "radio") {
+      const station = interaction.options.getString("station", true).trim();
+      if (!voiceGuildId || !getVoiceConnection(interaction.guildId)) {
+        await interaction.reply({
+          content: "I'm not in a voice channel. Use `/luna join` first.",
+          ephemeral: true,
+        });
+        return;
+      }
+      await interaction.deferReply();
+      try {
+        const track = await music.enqueue(station, "radio");
+        await interaction.editReply(
+          `Radio **${track.title}**. Say **Luna stop** to cut it. ` +
+            `Stations: ${listRadioStationNames().slice(0, 8).join(", ") || "(edit radio-stations.json)"}`,
+        );
+      } catch (e) {
+        await interaction.editReply(`Couldn't start radio: ${e.message}`);
       }
       return;
     }
@@ -668,7 +989,7 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (sub === "stop") {
-      music.stop();
+      interruptPlayback("slash-stop");
       await interaction.reply({ content: "Music stopped.", ephemeral: true });
       return;
     }
@@ -688,8 +1009,9 @@ client.on("interactionCreate", async (interaction) => {
           `Riko: ${riko}`,
           `VC: ${voiceGuildId ? "joined" : "not in voice"}`,
           `Listen: ${LISTEN_ENABLED ? "on" : "off"} (hears call → answers in call)`,
-          `Reply audio: ${voiceGuildId ? "Discord VC only (website silent)" : "webpage + Discord"}`,
-          `Now: ${st.current ? st.current.title : "(nothing)"}`,
+          `Library: ${musicPaths.distrokid}`,
+          `Radio stations: ${st.radio?.slice(0, 10).join(", ") || "(none)"}`,
+          `Now: ${st.current ? `${st.current.title} [${st.current.source || "?"}]` : "(nothing)"}`,
           `Queue: ${st.queued.length ? st.queued.join(" · ") : "(empty)"}`,
         ].join("\n"),
       );
@@ -722,14 +1044,19 @@ client.on("messageCreate", async (message) => {
     .trim();
   if (!text) return;
 
+  const inVc = Boolean(voiceGuildId && getVoiceConnection(voiceGuildId));
   try {
     await message.channel.sendTyping();
     const labeled = await labelDiscordUtterance(message.author.id, text, message.guild);
-    const result = await sendToRiko(labeled);
-    await message.react("💬").catch(() => {});
-    console.log(`[luna-discord] text→riko v${result.version}: ${labeled}`);
+    if (inVc) {
+      const result = await sendToRiko(labeled, { source: "discord" });
+      await message.react("💬").catch(() => {});
+      console.log(`[luna-discord] text→riko (VC) v${result.version}: ${labeled}`);
+      return;
+    }
+    await postChatReply(message, labeled);
   } catch (e) {
-    await message.reply(`Couldn't reach Riko: ${e.message}`).catch(() => {});
+    await message.reply(`Couldn't reach Luna: ${e.message}`).catch(() => {});
   }
 });
 
@@ -741,6 +1068,6 @@ if (OWNER_USER_IDS.size) {
 }
 console.log(
   `[luna-discord] wake: ${WAKE_REQUIRED ? "on" : "off"} words=[${WAKE_WORDS.join(" | ")}] ` +
-    `followup=${WAKE_FOLLOWUP_MS}ms`,
+    `followup=${WAKE_FOLLOWUP_MS}ms · tts_volume=${TTS_VOLUME}`,
 );
 await client.login(TOKEN);

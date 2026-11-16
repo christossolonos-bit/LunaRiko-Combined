@@ -28,17 +28,22 @@ from fastapi import APIRouter, File, Form, UploadFile
 
 from server.config import UPLOADS_DIR
 from server.routes._common import (
+    begin_discord_chat_collect,
+    consume_discord_chat_reply,
     discord_audio_queue,
     discord_music,
     discord_overhear,
     discord_tts_busy,
     discord_vc_active,
+    finish_discord_chat_reply,
     latest_uploaded_image,
+    pending_discord_chat_reply,
     pending_text,
     pending_voice,
     reply_audio_target,
 )
 from server.routes.schemas import (
+    DiscordChatReplyFinishRequest,
     DiscordMusicRequest,
     DiscordOverhearRequest,
     DiscordTtsBusyRequest,
@@ -46,6 +51,8 @@ from server.routes.schemas import (
     LiveMemoryTurnRequest,
     ReplyAudioRequest,
     SendMessageRequest,
+    VoiceprintIdentifyRequest,
+    VoiceprintLearnRequest,
 )
 
 
@@ -56,12 +63,14 @@ router = APIRouter()
 def _resolve_reply_audio(req: SendMessageRequest) -> str:
     """Where TTS should play for this turn.
 
-    Discord-labeled messages stay Discord-only. Website text/voice use browser
-    (or both) even while the bot is in Discord VC — otherwise the VRM page
-    goes silent whenever /luna join is active.
+    Discord-labeled messages stay Discord-only (VC) unless the bridge asks
+    for discord_chat (text channel + mp3 when not in VC). Website text/voice
+    use browser (or both) even while the bot is in Discord VC.
     """
     raw = (req.reply_audio or req.source or "").strip().lower()
     text = (req.message_text or "").lstrip()
+    if raw == "discord_chat":
+        return "discord_chat"
     if text.startswith("[Discord voice") or text.startswith("[Discord VC"):
         return "discord"
     if raw in ("discord", "browser", "both"):
@@ -152,7 +161,7 @@ async def send_message(req: SendMessageRequest) -> dict:
 async def set_reply_audio(req: ReplyAudioRequest) -> dict:
     """chat_terminal sets this at turn start / clears after (cross-process)."""
     target = (req.target or "both").strip().lower()
-    if target not in ("discord", "browser", "both"):
+    if target not in ("discord", "discord_chat", "browser", "both"):
         target = "both"
     reply_audio_target["value"] = target
     return {"target": target, "discord_vc": bool(discord_vc_active.get("value"))}
@@ -218,6 +227,26 @@ async def post_discord_tts_busy(req: DiscordTtsBusyRequest) -> dict:
     return {"busy": bool(discord_tts_busy["value"])}
 
 
+@router.post("/discord_chat_reply/begin")
+async def post_discord_chat_reply_begin() -> dict:
+    """chat_terminal: start collecting TTS clips for a text-channel reply."""
+    return begin_discord_chat_collect()
+
+
+@router.post("/discord_chat_reply/finish")
+async def post_discord_chat_reply_finish(req: DiscordChatReplyFinishRequest) -> dict:
+    """chat_terminal: publish stripped reply text + collected wav paths."""
+    return finish_discord_chat_reply(text=req.text or "", error=req.error)
+
+
+@router.get("/pending_discord_chat_reply")
+async def get_pending_discord_chat_reply(consume: bool = False) -> dict:
+    """Bridge polls until ready=true, then consume=1 to take ownership."""
+    if consume:
+        return consume_discord_chat_reply()
+    return dict(pending_discord_chat_reply)
+
+
 @router.post("/discord_overhear")
 async def post_discord_overhear(req: DiscordOverhearRequest) -> dict:
     """Append one overheard VC line (no reply) + feed live memory turn log."""
@@ -260,6 +289,41 @@ async def get_discord_overhear(limit: int = 40, clear: bool = False) -> dict:
     if clear:
         discord_overhear.clear()
     return {"lines": items, "count": len(items)}
+
+
+@router.post("/voiceprint/learn")
+async def post_voiceprint_learn(req: VoiceprintLearnRequest) -> dict:
+    """Learn / update a Discord caller's pitch+timbre fingerprint."""
+    from server.memory import voiceprint as vp
+
+    return vp.learn(
+        user_id=req.user_id,
+        display=req.display,
+        vector=list(req.vector or []),
+        pitch_hz=req.pitch_hz,
+        pitch_std=req.pitch_std,
+        centroid_hz=req.centroid_hz,
+        label=req.label,
+    )
+
+
+@router.post("/voiceprint/identify")
+async def post_voiceprint_identify(req: VoiceprintIdentifyRequest) -> dict:
+    """Match a voice sample to the closest enrolled speaker."""
+    from server.memory import voiceprint as vp
+
+    return vp.identify(
+        list(req.vector or []),
+        exclude_user_id=req.exclude_user_id,
+    )
+
+
+@router.get("/voiceprint/{user_id}")
+async def get_voiceprint(user_id: str) -> dict:
+    from server.memory import voiceprint as vp
+
+    record = vp.get_voiceprint(user_id)
+    return {"ok": bool(record), "voiceprint": record}
 
 
 @router.get("/live_memory/context")

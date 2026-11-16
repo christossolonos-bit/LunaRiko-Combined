@@ -71,7 +71,7 @@ discord_music: Dict[str, Any] = {"playing": False, "title": None}
 discord_tts_busy: Dict[str, Any] = {"value": False, "updated_at": 0.0}
 
 # Rolling VC conversation she overhears (wake-word gated replies still use this).
-_DISCORD_OVERHEAR_MAX = 50
+_DISCORD_OVERHEAR_MAX = 120
 discord_overhear: deque = deque(maxlen=_DISCORD_OVERHEAR_MAX)
 # FIFO of /talk clips for Discord — MUST be a queue, not a single slot.
 # Streaming TTS fires many /talks per reply; overwriting drops mid-sentence audio.
@@ -87,6 +87,19 @@ pending_discord_audio: Dict[str, Any] = {
 
 # Mic mute (browser UI toggle). Desktop ASR + browser voice respect this.
 mic_muted: Dict[str, Any] = {"value": False}
+
+# Discord text-chat reply (not in VC): collect TTS clips + final spoken text
+# so the bridge can post a written message + mp3 attachment.
+_discord_chat_seq: int = 0
+pending_discord_chat_reply: Dict[str, Any] = {
+    "version": 0,
+    "ready": False,
+    "text": "",
+    "audio_paths": [],  # wav paths collected during the turn
+    "error": None,
+}
+_discord_chat_collecting: bool = False
+_discord_chat_clips: list = []
 
 # Latest LLaVA caption from /vision/frame (live webcam stream).
 latest_vision_caption: Dict[str, Any] = {"text": None, "updated_at": 0.0}
@@ -135,6 +148,53 @@ def pop_discord_audio() -> dict:
         "duration": None,
         "queued": 0,
     }
+
+
+def begin_discord_chat_collect() -> dict:
+    """Start collecting TTS clips for a Discord text-chat reply."""
+    global _discord_chat_collecting, _discord_chat_clips
+    _discord_chat_collecting = True
+    _discord_chat_clips = []
+    pending_discord_chat_reply["ready"] = False
+    pending_discord_chat_reply["text"] = ""
+    pending_discord_chat_reply["audio_paths"] = []
+    pending_discord_chat_reply["error"] = None
+    return {"ok": True, "collecting": True}
+
+
+def append_discord_chat_clip(audio_path: str) -> None:
+    """Record one TTS wav for the in-progress Discord text reply."""
+    global _discord_chat_clips
+    if not _discord_chat_collecting:
+        return
+    path = (audio_path or "").strip()
+    if path:
+        _discord_chat_clips.append(path)
+
+
+def finish_discord_chat_reply(*, text: str, error: str | None = None) -> dict:
+    """Mark the Discord text reply ready for the bridge to post."""
+    global _discord_chat_seq, _discord_chat_collecting, _discord_chat_clips
+    _discord_chat_seq += 1
+    pending_discord_chat_reply["version"] = _discord_chat_seq
+    pending_discord_chat_reply["ready"] = True
+    pending_discord_chat_reply["text"] = (text or "").strip()
+    pending_discord_chat_reply["audio_paths"] = list(_discord_chat_clips)
+    pending_discord_chat_reply["error"] = error
+    _discord_chat_collecting = False
+    _discord_chat_clips = []
+    return dict(pending_discord_chat_reply)
+
+
+def consume_discord_chat_reply() -> dict:
+    """Return the ready reply (or empty) and clear ready flag."""
+    snap = dict(pending_discord_chat_reply)
+    if snap.get("ready"):
+        pending_discord_chat_reply["ready"] = False
+        pending_discord_chat_reply["text"] = ""
+        pending_discord_chat_reply["audio_paths"] = []
+        pending_discord_chat_reply["error"] = None
+    return snap
 
 # Last-known VR headset pose (POSTed by client/vr/vrPositionTracker.js).
 _vr_position: Dict[str, float] = {

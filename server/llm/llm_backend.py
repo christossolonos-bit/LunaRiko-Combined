@@ -175,6 +175,15 @@ class LocalLLMBackend(LLMBackend):
         self.temperature = temperature
         self.last_turn_usage: dict = {}
 
+        # Ensure .env is loaded even if config was imported before dotenv ran.
+        load_dotenv()
+        if not (self.api_key or "").strip() or self.api_key.strip() in (
+            "ollama", "local", "env:NVIDIA_API_KEY",
+        ):
+            host = self.base_url.lower()
+            if "nvidia.com" in host or "integrate.api.nvidia" in host:
+                self.api_key = (os.getenv("NVIDIA_API_KEY") or "").strip()
+
         if self.api_style == "openai":
             openai_base = self.base_url
             if openai_base.endswith("/v1"):
@@ -248,26 +257,47 @@ class LocalLLMBackend(LLMBackend):
                 f"is Ollama running? ({e})"
             ) from e
 
+    def _openai_extra_body(self) -> dict:
+        """Provider-specific knobs. NVIDIA Nemotron uses chat_template_kwargs."""
+        host = self.base_url.lower()
+        if "nvidia.com" in host or "integrate.api.nvidia" in host:
+            return {
+                "chat_template_kwargs": {
+                    "enable_thinking": bool(self.think),
+                }
+            }
+        return {"think": bool(self.think)}
+
     def _stream_openai(self, msgs: List[dict]) -> Iterator[str]:
         assert self._openai is not None
+        if not (self.api_key or "").strip() or self.api_key.strip() in (
+            "ollama", "local", "env:NVIDIA_API_KEY",
+        ):
+            raise RuntimeError(
+                "LLM API key missing — set NVIDIA_API_KEY (or local_llm_api_key) in .env"
+            )
         stream = self._openai.chat.completions.create(
             model=self.model,
             messages=msgs,
             stream=True,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
-            extra_body={"think": False if not self.think else True},
+            top_p=0.95,
+            extra_body=self._openai_extra_body(),
         )
         assembled: List[str] = []
         for event in stream:
             if not event.choices:
                 continue
-            piece = event.choices[0].delta.content or ""
+            delta = event.choices[0].delta
+            # Spoken content only — ignore Nemotron reasoning_content if present.
+            piece = getattr(delta, "content", None) or ""
             if piece:
                 assembled.append(piece)
                 yield piece
         if not assembled:
             raise RuntimeError(
-                "Local LLM returned empty content (likely thinking still on). "
-                "Use local_llm_api_style: ollama and local_llm_think: false."
+                "LLM returned empty content (thinking may still be on, or the "
+                "API key/model rejected the request). Check NVIDIA_API_KEY and "
+                "local_llm_think: false."
             )

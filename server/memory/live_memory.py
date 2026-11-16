@@ -33,6 +33,7 @@ class ProfileCard(BaseModel):
     active_projects: str = ""
     constraints: str = ""
     vibe_notes: str = ""
+    voice_signature: str = ""
     notes: str = ""
     name: str = ""
 
@@ -148,7 +149,9 @@ def consolidate_once() -> bool:
         f"You update memory for {name}. Reply with JSON only.\n"
         "Fields: durable (string), working (string), profiles (object).\n"
         "profiles keys = Discord user_id digits from the turns (e.g. \"111\").\n"
-        "Each profile value: goals, active_projects, constraints, vibe_notes, notes, name.\n"
+        "Each profile value: goals, active_projects, constraints, vibe_notes, "
+        "voice_signature, notes, name.\n"
+        "Keep voice_signature if already set (acoustic pitch/timbre label).\n"
         "Person facts → that profile. Shared call facts → durable. "
         "Current topic / open questions → working.\n"
         "Be specific. Do not invent. Empty string if nothing new for a field.\n"
@@ -241,10 +244,20 @@ def _format_profile(user_id: Optional[str]) -> str:
         ("Active projects", "active_projects"),
         ("Constraints", "constraints"),
         ("Vibe notes", "vibe_notes"),
+        ("Voice", "voice_signature"),
         ("Notes", "notes"),
     ):
         if card.get(key):
             lines.append(f"{label}: {card[key]}")
+    # Acoustic fingerprint (pitch/timbre) if enrolled.
+    try:
+        from server.memory import voiceprint as _vp
+
+        voice_block = _vp.format_for_prompt(str(user_id))
+        if voice_block:
+            lines.append(voice_block)
+    except Exception:
+        pass
     return "[SPEAKER PROFILE — who you're talking to right now]\n" + "\n".join(lines)
 
 
@@ -268,7 +281,10 @@ def get_context(
         "- Prefer the turn log and profile over any fuzzy guess.\n"
         "- If they ask their own name / who they are / what you remember "
         "about them: answer with the known fact in the first sentence "
-        "(e.g. say Solonaras). Do not refuse, stall, or tease-withhold."
+        "(e.g. say Solonaras). Do not refuse, stall, or tease-withhold.\n"
+        "- Direct questions (any topic): answer in the first sentence, "
+        "then you may tease. Do not dodge, psychoanalyze their motive, "
+        "or withhold the answer behind flirt."
     ]
 
     profile = _format_profile(uid)
